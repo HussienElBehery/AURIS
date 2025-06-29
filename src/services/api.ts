@@ -27,6 +27,21 @@ function isDemoMode(): boolean {
   return localStorage.getItem('token') === 'demo-token';
 }
 
+function mapAnalysisResponse(data: any): Analysis {
+  return {
+    id: data.id,
+    chatLogId: data.chat_log_id,
+    agentId: data.agent_id,
+    guidelines: data.guidelines,
+    issues: data.issues,
+    highlights: data.highlights,
+    analysisSummary: data.analysis_summary,
+    errorMessage: data.error_message,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  };
+}
+
 export const api = {
   // Auth endpoints
   auth: {
@@ -206,12 +221,53 @@ export const api = {
       });
       return handleResponse<Evaluation>(response);
     },
+
+    getByAgentId: async (agentId: string): Promise<Evaluation[]> => {
+      const response = await fetch(`${API_BASE_URL}/chat-logs/evaluations/by-agent/${agentId}`, {
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<Evaluation[]>(response);
+    },
+
+    getAll: async (): Promise<Evaluation[]> => {
+      const response = await fetch(`${API_BASE_URL}/chat-logs/evaluations/all`, {
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<Evaluation[]>(response);
+    },
   },
 
   // Analysis endpoints
   analysis: {
-    getByChatLogId: async (chatLogId: string): Promise<Analysis> => {
-      const response = await fetch(`${API_BASE_URL}/chat-logs/${chatLogId}/analysis`, {
+    getByChatLogId: async (chatLogId: string, agentId?: string): Promise<Analysis> => {
+      let url = `${API_BASE_URL}/chat-logs/${chatLogId}/analysis`;
+      if (agentId) url += `?agent_id=${encodeURIComponent(agentId)}`;
+      const response = await fetch(url, {
+        headers: getAuthHeaders(),
+      });
+      const data = await handleResponse<any>(response);
+      return mapAnalysisResponse(data);
+    },
+
+    getByAgentId: async (agentId: string): Promise<Analysis[]> => {
+      const response = await fetch(`${API_BASE_URL}/chat-logs/analyses/by-agent/${agentId}`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await handleResponse<any[]>(response);
+      return data.map(mapAnalysisResponse);
+    },
+
+    getAll: async (): Promise<Analysis[]> => {
+      const response = await fetch(`${API_BASE_URL}/chat-logs/analyses/all`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await handleResponse<any[]>(response);
+      return data.map(mapAnalysisResponse);
+    },
+
+    reanalyze: async (chatLogId: string): Promise<Analysis> => {
+      const response = await fetch(`${API_BASE_URL}/chat-logs/${chatLogId}/reanalyze-analysis`, {
+        method: 'POST',
         headers: getAuthHeaders(),
       });
       return handleResponse<Analysis>(response);

@@ -4,6 +4,7 @@ export interface User {
   email: string;
   role: 'agent' | 'manager';
   agentId?: string;
+  agent_id?: string;
   avatar?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -48,6 +49,7 @@ export interface Attachment {
 export interface Evaluation {
   id: string;
   chatLogId: string;
+  agentId?: string;
   coherence?: number;
   relevance?: number;
   politeness?: number;
@@ -67,6 +69,7 @@ export interface Evaluation {
 export interface Analysis {
   id: string;
   chatLogId: string;
+  agentId?: string;
   guidelines?: GuidelineResult[];
   issues?: string[];
   highlights?: string[];

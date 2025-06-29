@@ -3,6 +3,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import enum
+from datetime import datetime
 
 Base = declarative_base()
 
@@ -71,6 +72,7 @@ class Evaluation(Base):
     
     id = Column(String, primary_key=True, index=True)
     chat_log_id = Column(String, ForeignKey("chat_logs.id"), nullable=False)
+    agent_id = Column(String, nullable=True)  # Add agent_id for direct agent linking
     coherence = Column(Float, nullable=True)
     relevance = Column(Float, nullable=True)
     politeness = Column(Float, nullable=True)
@@ -85,20 +87,21 @@ class Evaluation(Base):
     chat_log = relationship("ChatLog", back_populates="evaluation")
     
     def __repr__(self):
-        return f"<Evaluation(id={self.id}, chat_log_id={self.chat_log_id})>"
+        return f"<Evaluation(id={self.id}, chat_log_id={self.chat_log_id}, agent_id={self.agent_id})>"
 
 class Analysis(Base):
     __tablename__ = "analyses"
     
     id = Column(String, primary_key=True, index=True)
     chat_log_id = Column(String, ForeignKey("chat_logs.id"), nullable=False)
+    agent_id = Column(String, index=True, nullable=True)  # Add agent_id like Evaluation
     guidelines = Column(JSON, nullable=True)  # Store guideline compliance results
     issues = Column(JSON, nullable=True)  # Array of issues
     highlights = Column(JSON, nullable=True)  # Array of highlights
     analysis_summary = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     chat_log = relationship("ChatLog", back_populates="analysis")

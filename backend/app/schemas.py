@@ -98,6 +98,7 @@ class EvaluationCreate(BaseModel):
 class EvaluationResponse(BaseModel):
     id: str
     chat_log_id: str
+    agent_id: Optional[str] = None
     coherence: Optional[float] = None
     relevance: Optional[float] = None
     politeness: Optional[float] = None
@@ -119,6 +120,7 @@ class GuidelineResult(BaseModel):
 
 class AnalysisCreate(BaseModel):
     chat_log_id: str
+    agent_id: Optional[str] = None
     guidelines: Optional[List[GuidelineResult]] = None
     issues: Optional[List[str]] = None
     highlights: Optional[List[str]] = None
@@ -128,6 +130,7 @@ class AnalysisCreate(BaseModel):
 class AnalysisResponse(BaseModel):
     id: str
     chat_log_id: str
+    agent_id: Optional[str] = None
     guidelines: Optional[List[GuidelineResult]] = None
     issues: Optional[List[str]] = None
     highlights: Optional[List[str]] = None

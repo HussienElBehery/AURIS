@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import json
 import uuid
 from datetime import datetime
+import logging
+import traceback
 
 from ..database import get_db
 from ..dependencies import get_current_user
@@ -14,6 +16,7 @@ from ..schemas import (
 )
 from ..services.processing_pipeline import processing_pipeline
 from ..services.ollama_service import ollama_service
+from ..services.analysis_agent import analysis_agent
 
 router = APIRouter(prefix="/chat-logs", tags=["chat-logs"])
 
@@ -37,14 +40,14 @@ async def get_model_status(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting model status: {str(e)}")
 
-@router.post("/upload", response_model=ChatLogResponse)
+@router.post("/upload", response_model=List[ChatLogResponse])
 async def upload_chat_log(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Upload a JSON chat log file for processing.
+    Upload a JSON chat log file for processing. Supports single or batch (array) uploads.
     """
     try:
         # Validate file type
@@ -58,99 +61,67 @@ async def upload_chat_log(
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="Invalid JSON format")
         
-        # Extract transcript data
-        transcript_data = data.get('transcript', [])
-        if not transcript_data:
-            raise HTTPException(status_code=400, detail="No transcript data found")
+        # If data is a list, treat as batch upload
+        chat_logs_data = data if isinstance(data, list) else [data]
+        if not chat_logs_data:
+            raise HTTPException(status_code=400, detail="No chat logs found in file")
         
-        # Convert transcript to our format with optional timestamps
-        transcript = []
-        
-        for message in transcript_data:
-            if isinstance(message, dict):
-                sender = message.get('sender', 'unknown')
-                text = message.get('text', '')
-                timestamp = message.get('timestamp')
-                
-                if text:  # Only add non-empty messages
-                    message_data = {"sender": sender, "text": text}
-                    
-                    # Handle timestamp
-                    if timestamp:
-                        # If timestamp is a string, try to parse it
-                        if isinstance(timestamp, str):
-                            try:
-                                # Try different timestamp formats
-                                for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
-                                    try:
-                                        parsed_timestamp = datetime.strptime(timestamp, fmt)
-                                        message_data["timestamp"] = parsed_timestamp.isoformat()
-                                        break
-                                    except ValueError:
-                                        continue
-                                else:
-                                    # If no format matches, use current time
-                                    message_data["timestamp"] = datetime.now().isoformat()
-                            except:
-                                message_data["timestamp"] = datetime.now().isoformat()
-                        else:
+        created_chat_logs = []
+        for chat_data in chat_logs_data:
+            transcript_data = chat_data.get('transcript', [])
+            if not transcript_data:
+                continue  # Skip empty chat logs
+            transcript = []
+            for message in transcript_data:
+                if isinstance(message, dict):
+                    sender = message.get('sender', 'unknown')
+                    text = message.get('text', '')
+                    timestamp = message.get('timestamp')
+                    if text:
+                        message_data = {"sender": sender, "text": text}
+                        if timestamp:
                             message_data["timestamp"] = timestamp
-                    else:
-                        # No timestamp provided, use current time
-                        message_data["timestamp"] = datetime.now().isoformat()
-                    
-                    transcript.append(message_data)
-        
-        if not transcript:
-            raise HTTPException(status_code=400, detail="No valid messages found in transcript")
-        
-        # Create chat log record
-        chat_log_id = str(uuid.uuid4())
-        interaction_id = f"chat-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{chat_log_id[:8]}"
-        
-        # Determine agent_id and agent_persona
-        agent_id = None
-        agent_persona = None
-        
-        if current_user.role == "agent":
-            # If user is an agent, assign them as the agent for this chat
-            agent_id = current_user.agent_id or current_user.id
-            agent_persona = f"{current_user.name} - {current_user.role.title()}"
-        else:
-            # For managers, agent will be assigned later
+                        transcript.append(message_data)
+            if not transcript:
+                continue  # Skip if no valid messages
+            chat_log_id = str(uuid.uuid4())
+            interaction_id = f"chat-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{chat_log_id[:8]}"
+            # Determine agent_id and agent_persona
             agent_id = None
             agent_persona = None
-        
-        chat_log = ChatLog(
-            id=chat_log_id,
-            interaction_id=interaction_id,
-            agent_id=agent_id,
-            agent_persona=agent_persona,
-            transcript=transcript,
-            status=ProcessingStatus.PENDING,
-            uploaded_by=current_user.id
-        )
-        
-        db.add(chat_log)
-        db.commit()
-        db.refresh(chat_log)
-        
-        return ChatLogResponse(
-            id=chat_log.id,
-            interaction_id=chat_log.interaction_id,
-            agent_id=chat_log.agent_id,
-            agent_persona=chat_log.agent_persona,
-            transcript=transcript,
-            status=chat_log.status,
-            uploaded_by=chat_log.uploaded_by,
-            created_at=chat_log.created_at,
-            updated_at=chat_log.updated_at
-        )
-        
+            if current_user.role == "agent":
+                agent_id = current_user.agent_id or current_user.id
+                agent_persona = f"{current_user.name} - {current_user.role.title()}"
+            chat_log = ChatLog(
+                id=chat_log_id,
+                interaction_id=interaction_id,
+                agent_id=agent_id,
+                agent_persona=agent_persona,
+                transcript=transcript,
+                status=ProcessingStatus.PENDING,
+                uploaded_by=current_user.id
+            )
+            db.add(chat_log)
+            db.commit()
+            db.refresh(chat_log)
+            created_chat_logs.append(ChatLogResponse(
+                id=chat_log.id,
+                interaction_id=chat_log.interaction_id,
+                agent_id=chat_log.agent_id,
+                agent_persona=chat_log.agent_persona,
+                transcript=transcript,
+                status=chat_log.status,
+                uploaded_by=chat_log.uploaded_by,
+                created_at=chat_log.created_at,
+                updated_at=chat_log.updated_at
+            ))
+        if not created_chat_logs:
+            raise HTTPException(status_code=400, detail="No valid chat logs found in file")
+        return created_chat_logs
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error uploading chat log: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error uploading chat log(s): {str(e)}")
 
 @router.post("/{chat_log_id}/process", response_model=MessageResponse)
 async def process_chat_log(
@@ -285,20 +256,24 @@ async def get_evaluation(
 @router.get("/{chat_log_id}/analysis", response_model=AnalysisResponse)
 async def get_analysis(
     chat_log_id: str,
+    agent_id: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Get analysis results for a chat log.
+    Get the analysis for a chat log, optionally filtered by agent_id.
     """
     try:
-        analysis = db.query(Analysis).filter(Analysis.chat_log_id == chat_log_id).first()
+        query = db.query(Analysis).filter(Analysis.chat_log_id == chat_log_id)
+        if agent_id:
+            query = query.filter(Analysis.agent_id == agent_id)
+        analysis = query.order_by(Analysis.created_at.desc()).first()
         if not analysis:
             raise HTTPException(status_code=404, detail="Analysis not found")
-        
         return AnalysisResponse(
             id=analysis.id,
             chat_log_id=analysis.chat_log_id,
+            agent_id=analysis.agent_id,
             guidelines=analysis.guidelines,
             issues=analysis.issues,
             highlights=analysis.highlights,
@@ -307,10 +282,10 @@ async def get_analysis(
             created_at=analysis.created_at,
             updated_at=analysis.updated_at
         )
-        
     except HTTPException:
         raise
     except Exception as e:
+        logging.error(f"Error in get_analysis: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error getting analysis: {str(e)}")
 
 @router.get("/{chat_log_id}/recommendation", response_model=RecommendationResponse)
@@ -508,6 +483,142 @@ async def get_chat_log(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting chat log: {str(e)}")
 
+@router.get("/evaluations/by-agent/{agent_id}", response_model=List[EvaluationResponse])
+async def get_evaluations_by_agent(
+    agent_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all evaluations for a specific agent.
+    Managers can see all agents, agents can only see their own evaluations.
+    """
+    try:
+        # Check permissions
+        if current_user.role != "manager":
+            user_agent_id = current_user.agent_id or current_user.id
+            if agent_id != user_agent_id:
+                raise HTTPException(status_code=403, detail="You can only view your own evaluations")
+        
+        # Get evaluations for the agent
+        evaluations = db.query(Evaluation).filter(Evaluation.agent_id == agent_id).all()
+        
+        return [
+            EvaluationResponse(
+                id=evaluation.id,
+                chat_log_id=evaluation.chat_log_id,
+                agent_id=evaluation.agent_id,
+                coherence=evaluation.coherence,
+                relevance=evaluation.relevance,
+                politeness=evaluation.politeness,
+                resolution=evaluation.resolution,
+                reasoning=evaluation.reasoning,
+                evaluation_summary=evaluation.evaluation_summary,
+                error_message=evaluation.error_message,
+                created_at=evaluation.created_at,
+                updated_at=evaluation.updated_at
+            )
+            for evaluation in evaluations
+        ]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting evaluations by agent: {str(e)}")
+
+@router.get("/evaluations/all", response_model=List[EvaluationResponse])
+async def get_all_evaluations(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all evaluations (managers only).
+    """
+    try:
+        # Check permissions
+        if current_user.role != "manager":
+            raise HTTPException(status_code=403, detail="Only managers can view all evaluations")
+        
+        # Get all evaluations
+        evaluations = db.query(Evaluation).all()
+        
+        return [
+            EvaluationResponse(
+                id=evaluation.id,
+                chat_log_id=evaluation.chat_log_id,
+                agent_id=evaluation.agent_id,
+                coherence=evaluation.coherence,
+                relevance=evaluation.relevance,
+                politeness=evaluation.politeness,
+                resolution=evaluation.resolution,
+                reasoning=evaluation.reasoning,
+                evaluation_summary=evaluation.evaluation_summary,
+                error_message=evaluation.error_message,
+                created_at=evaluation.created_at,
+                updated_at=evaluation.updated_at
+            )
+            for evaluation in evaluations
+        ]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting all evaluations: {str(e)}")
+
+@router.post("/{chat_log_id}/reanalyze-analysis", response_model=AnalysisResponse)
+async def reanalyze_analysis(
+    chat_log_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Re-run the analysis agent for a chat log, regardless of status. Deletes any existing analysis.
+    """
+    logger = logging.getLogger("reanalyze_analysis")
+    try:
+        chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
+        if not chat_log:
+            raise HTTPException(status_code=404, detail="Chat log not found")
+        # Delete existing analysis
+        db.query(Analysis).filter(Analysis.chat_log_id == chat_log_id).delete()
+        db.commit()
+        # Run analysis agent
+        transcript = chat_log.transcript
+        logger.info(f"Calling analysis agent for chat_log_id={chat_log_id}")
+        result = await analysis_agent.analyze_chat(transcript)
+        logger.info(f"Analysis agent result: {result}")
+        # Store new analysis with correct keys
+        analysis = Analysis(
+            id=str(uuid.uuid4()),
+            chat_log_id=chat_log_id,
+            agent_id=chat_log.agent_id,
+            guidelines=result.get("guidelines"),
+            issues=result.get("key_issues", []),
+            highlights=result.get("highlights", []) or result.get("positive_highlights", []),
+            analysis_summary=result.get("analysis_summary"),
+            error_message=result.get("error_message")
+        )
+        db.add(analysis)
+        db.commit()
+        db.refresh(analysis)
+        return AnalysisResponse(
+            id=analysis.id,
+            chat_log_id=analysis.chat_log_id,
+            agent_id=analysis.agent_id,
+            guidelines=analysis.guidelines,
+            issues=analysis.issues,
+            highlights=analysis.highlights,
+            analysis_summary=analysis.analysis_summary,
+            error_message=analysis.error_message,
+            created_at=analysis.created_at,
+            updated_at=analysis.updated_at
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in reanalyze_analysis: {e}")
+        raise HTTPException(status_code=500, detail=f"Error reanalyzing analysis: {str(e)}")
+
 async def process_chat_log_background(
     chat_log_id: str,
     transcript: List[Dict[str, str]],
@@ -528,9 +639,12 @@ async def process_chat_log_background(
                 
                 if agent_type == "evaluation":
                     result_data = result
+                    # Get the chat_log to get the agent_id
+                    chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
                     evaluation = Evaluation(
                         id=str(uuid.uuid4()),
                         chat_log_id=chat_log_id,
+                        agent_id=chat_log.agent_id if chat_log else None,  # Add agent_id
                         coherence=result_data.get("coherence", {}).get("score"),
                         relevance=result_data.get("relevance", {}).get("score"),
                         politeness=result_data.get("politeness", {}).get("score"),
@@ -545,6 +659,7 @@ async def process_chat_log_background(
                     analysis = Analysis(
                         id=str(uuid.uuid4()),
                         chat_log_id=chat_log_id,
+                        agent_id=chat_log.agent_id,
                         guidelines=result.get("guidelines"),
                         issues=result.get("issues"),
                         highlights=result.get("highlights"),
@@ -568,9 +683,12 @@ async def process_chat_log_background(
             elif agent_data["status"] == "failed":
                 # Create error records
                 if agent_type == "evaluation":
+                    # Get the chat_log to get the agent_id
+                    chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
                     evaluation = Evaluation(
                         id=str(uuid.uuid4()),
                         chat_log_id=chat_log_id,
+                        agent_id=chat_log.agent_id if chat_log else None,  # Add agent_id
                         error_message=agent_data["error_message"]
                     )
                     db.add(evaluation)
@@ -579,6 +697,7 @@ async def process_chat_log_background(
                     analysis = Analysis(
                         id=str(uuid.uuid4()),
                         chat_log_id=chat_log_id,
+                        agent_id=chat_log.agent_id,
                         error_message=agent_data["error_message"]
                     )
                     db.add(analysis)
@@ -613,4 +732,59 @@ async def process_chat_log_background(
         except:
             pass
         
-        print(f"Error in background processing: {e}") 
+        print(f"Error in background processing: {e}")
+
+@router.get("/analyses/by-agent/{agent_id}", response_model=List[AnalysisResponse])
+async def get_analyses_by_agent(
+    agent_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all analyses for a given agent_id.
+    """
+    try:
+        analyses = db.query(Analysis).filter(Analysis.agent_id == agent_id).all()
+        return [
+            AnalysisResponse(
+                id=a.id,
+                chat_log_id=a.chat_log_id,
+                agent_id=a.agent_id,
+                guidelines=a.guidelines,
+                issues=a.issues,
+                highlights=a.highlights,
+                analysis_summary=a.analysis_summary,
+                error_message=a.error_message,
+                created_at=a.created_at,
+                updated_at=a.updated_at
+            ) for a in analyses
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting analyses by agent: {str(e)}")
+
+@router.get("/analyses/all", response_model=List[AnalysisResponse])
+async def get_all_analyses(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all analyses.
+    """
+    try:
+        analyses = db.query(Analysis).all()
+        return [
+            AnalysisResponse(
+                id=a.id,
+                chat_log_id=a.chat_log_id,
+                agent_id=a.agent_id,
+                guidelines=a.guidelines,
+                issues=a.issues,
+                highlights=a.highlights,
+                analysis_summary=a.analysis_summary,
+                error_message=a.error_message,
+                created_at=a.created_at,
+                updated_at=a.updated_at
+            ) for a in analyses
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting all analyses: {str(e)}") 

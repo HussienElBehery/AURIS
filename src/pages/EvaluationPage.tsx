@@ -18,6 +18,17 @@ const EvaluationPage: React.FC = () => {
   // Check if user is a demo user
   const isDemoUser = localStorage.getItem('token') === 'demo-token';
 
+  // Helper to map backend evaluation fields to frontend camelCase
+  const mapEvaluation = (e: any): Evaluation => ({
+    ...e,
+    chatLogId: e.chat_log_id,
+    agentId: e.agent_id,
+    evaluationSummary: e.evaluation_summary,
+    errorMessage: e.error_message,
+    createdAt: e.created_at,
+    updatedAt: e.updated_at,
+  });
+
   // Load chat logs and evaluations
   useEffect(() => {
     if (!isDemoUser) {
@@ -32,19 +43,32 @@ const EvaluationPage: React.FC = () => {
       const logs = await api.chatLogs.getAll();
       setChatLogs(logs);
       
-      // Load evaluations for each chat log
+      // Debug: Log user object to see what fields are available
+      console.log('Current user object:', user);
+      console.log('User agentId:', user?.agentId);
+      console.log('User agent_id:', (user as any)?.agent_id);
+      
+      // Load evaluations by agent_id instead of by chat_log_id
       const allEvaluations: Evaluation[] = [];
-      for (const chat of logs) {
-        try {
-          const evaluation = await api.chatLogs.getEvaluation(chat.id);
-          if (evaluation) {
-            allEvaluations.push(evaluation);
-          }
-        } catch (err) {
-          // Evaluation might not exist yet
-          console.log(`No evaluation for chat ${chat.id}`);
+      
+      if (user?.role === 'manager') {
+        // Managers can see all evaluations
+        const evaluations = await api.evaluations.getAll();
+        allEvaluations.push(...evaluations.map(mapEvaluation));
+      } else {
+        // Agents see their own evaluations - use agentId from user object
+        const agentId = user?.agentId || (user as any)?.agent_id;
+        if (agentId) {
+          console.log(`Loading evaluations for agent: ${agentId}`);
+          const evaluations = await api.evaluations.getByAgentId(agentId);
+          console.log('Raw evaluations from API:', evaluations);
+          allEvaluations.push(...evaluations.map(mapEvaluation));
+        } else {
+          console.warn('No agentId found for user:', user);
         }
       }
+      
+      console.log('All evaluations after processing:', allEvaluations);
       setEvaluations(allEvaluations);
     } catch (err: any) {
       setError(err.message || 'Failed to load data');
@@ -67,14 +91,21 @@ const EvaluationPage: React.FC = () => {
     if (!chat) return false;
     
     const matchesChat = selectedChat === 'all' || evaluation.chatLogId === selectedChat;
-    const matchesAgent = selectedAgent === 'all' || chat.agent_id === selectedAgent;
+    const matchesAgent = selectedAgent === 'all' || evaluation.agentId === selectedAgent;
     
     return matchesChat && matchesAgent;
   });
 
+  console.log('User evaluations:', userEvaluations);
+  console.log('Filtered evaluations:', filteredEvaluations);
+  console.log('Selected chat:', selectedChat);
+  console.log('Selected agent:', selectedAgent);
+
   const currentEvaluation = selectedChat !== 'all' 
     ? filteredEvaluations.find(e => e.chatLogId === selectedChat)
     : null;
+
+  console.log('Current evaluation:', currentEvaluation);
 
   // Calculate averages
   const avgMetrics = filteredEvaluations.length > 0 ? {
@@ -83,6 +114,8 @@ const EvaluationPage: React.FC = () => {
     politeness: filteredEvaluations.reduce((sum, e) => sum + (e.politeness || 0), 0) / filteredEvaluations.length,
     resolution: filteredEvaluations.reduce((sum, e) => sum + (e.resolution || 0), 0) / filteredEvaluations.length
   } : { coherence: 0, relevance: 0, politeness: 0, resolution: 0 };
+
+  console.log('Average metrics:', avgMetrics);
 
   const chartData = [
     { label: 'Coherence', value: avgMetrics.coherence, color: 'bg-blue-600' },
@@ -179,7 +212,7 @@ const EvaluationPage: React.FC = () => {
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   >
                     <option value="all">All Agents</option>
-                    {Array.from(new Set(userChats.map(chat => chat.agent_id).filter(Boolean))).map(agentId => (
+                    {Array.from(new Set(userEvaluations.map(evaluation => evaluation.agentId).filter(Boolean))).map(agentId => (
                       <option key={agentId} value={agentId}>{agentId}</option>
                     ))}
                   </select>

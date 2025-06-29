@@ -29,16 +29,19 @@ const ChatLogUpload: React.FC<ChatLogUploadProps> = ({
     setUploadState(prev => ({ ...prev, isUploading: true, error: null }));
 
     try {
-      const chatLog = await api.chatLogs.upload(file);
+      // Support batch upload: backend returns an array of chat logs
+      const uploaded = await api.chatLogs.upload(file);
+      const uploadedLogs = Array.isArray(uploaded) ? uploaded : [uploaded];
       setUploadState(prev => ({ 
         ...prev, 
-        uploadedChatLog: chatLog, 
+        uploadedChatLog: uploadedLogs[0], // For legacy compatibility, keep the first one
         isUploading: false 
       }));
-      onUploadSuccess?.(chatLog);
-      
-      // Start processing automatically
-      await startProcessing(chatLog.id);
+      onUploadSuccess?.(uploadedLogs[0]);
+      // Start processing each chat log individually
+      for (const chatLog of uploadedLogs) {
+        await startProcessing(chatLog.id);
+      }
     } catch (err: any) {
       setUploadState(prev => ({ 
         ...prev, 

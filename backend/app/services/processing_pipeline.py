@@ -6,6 +6,7 @@ import json
 import uuid
 from .ollama_service import ollama_service
 from .evaluation_agent import evaluation_agent
+from .analysis_agent import analysis_agent
 
 logger = logging.getLogger(__name__)
 
@@ -162,32 +163,11 @@ class ProcessingPipeline:
             }
     
     async def _run_analysis_agent(self, transcript: List[Dict[str, str]], model_name: str) -> Dict[str, Any]:
-        """Run the analysis agent (simplified version)."""
-        transcript_text = self._format_transcript(transcript)
-        
-        analysis_prompt = f"""
-        Analyze this customer service conversation and provide:
-        1. Key issues discussed
-        2. Guidelines compliance assessment
-        3. Areas for improvement
-        4. Overall conversation quality
-        
-        Conversation:
-        {transcript_text}
-        
-        Please provide a structured analysis.
-        """
-        
-        response = ollama_service.generate_evaluation(model_name, analysis_prompt)
-        
-        if response.startswith("Error"):
-            raise Exception(response)
-        
-        return {
-            "analysis": response,
-            "model_used": model_name,
-            "agent": "analysis_agent"
-        }
+        """Run the analysis agent with structured output and fallback."""
+        # Use default guidelines (could be extended to accept custom guidelines)
+        guidelines = None  # Or pass a list to override
+        result = await analysis_agent.analyze_chat(transcript, guidelines)
+        return result
     
     async def _run_recommendation_agent(self, transcript: List[Dict[str, str]], model_name: str) -> Dict[str, Any]:
         """Run the recommendation agent (simplified version)."""

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Search, Filter, Download, Eye, Trash2, Plus, Database, X } from 'lucide-react';
+import { Upload, Search, Filter, Download, Eye, Trash2, Plus, Database, X, CheckCircle, XCircle, Loader2, Circle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
 import { ChatLog, ProcessingStatus } from '../types';
@@ -17,6 +17,7 @@ const ChatsPage: React.FC = () => {
   const [selectedAgent, setSelectedAgent] = useState('all');
   const [selectedChat, setSelectedChat] = useState<ChatLog | null>(null);
   const [showViewModal, setShowViewModal] = useState(false);
+  const [agentStatuses, setAgentStatuses] = useState<{ evaluation: string; analysis: string; recommendation: string } | null>(null);
 
   // Check if user is a demo user
   const isDemoUser = localStorage.getItem('token') === 'demo-token';
@@ -92,6 +93,37 @@ const ChatsPage: React.FC = () => {
       case 'failed': return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-200';
       default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-200';
     }
+  };
+
+  const fetchAgentStatuses = async (chatLogId: string) => {
+    try {
+      // Default: not started
+      let evaluation = 'not_started', analysis = 'not_started', recommendation = 'not_started';
+      // Try to fetch evaluation
+      try {
+        const evalData = await api.evaluations.getByChatLogId(chatLogId);
+        evaluation = evalData && !evalData.errorMessage ? 'completed' : 'failed';
+      } catch { evaluation = 'not_started'; }
+      // Try to fetch analysis
+      try {
+        const analysisData = await api.analysis.getByChatLogId(chatLogId);
+        analysis = analysisData && !analysisData.errorMessage ? 'completed' : 'failed';
+      } catch { analysis = 'not_started'; }
+      // Try to fetch recommendation
+      try {
+        const recData = await api.recommendations.getByChatLogId(chatLogId);
+        recommendation = recData && !recData.errorMessage ? 'completed' : 'failed';
+      } catch { recommendation = 'not_started'; }
+      setAgentStatuses({ evaluation, analysis, recommendation });
+    } catch {
+      setAgentStatuses(null);
+    }
+  };
+
+  const handleViewChat = (chat: ChatLog) => {
+    setSelectedChat(chat);
+    setShowViewModal(true);
+    fetchAgentStatuses(chat.id);
   };
 
   return (
@@ -301,10 +333,7 @@ const ChatsPage: React.FC = () => {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                           <div className="flex space-x-2">
-                            <button className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300" onClick={() => {
-                              setSelectedChat(chat);
-                              setShowViewModal(true);
-                            }}>
+                            <button className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300" onClick={() => handleViewChat(chat)}>
                               <Eye className="w-4 h-4" />
                             </button>
                             <button className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300" onClick={() => handleDeleteChat(chat.id)}>
@@ -379,6 +408,30 @@ const ChatsPage: React.FC = () => {
                   </p>
                 </div>
               </div>
+
+              {/* Agent Status Indicators */}
+              {agentStatuses && (
+                <div className="flex items-center space-x-4 mb-4">
+                  <span className="flex items-center space-x-1" title="Evaluation status">
+                    <span className="font-bold">E</span>
+                    {agentStatuses.evaluation === 'completed' && <CheckCircle className="w-4 h-4 text-emerald-600" />}
+                    {agentStatuses.evaluation === 'failed' && <XCircle className="w-4 h-4 text-red-600" />}
+                    {agentStatuses.evaluation === 'not_started' && <Circle className="w-4 h-4 text-gray-400" />}
+                  </span>
+                  <span className="flex items-center space-x-1" title="Analysis status">
+                    <span className="font-bold">A</span>
+                    {agentStatuses.analysis === 'completed' && <CheckCircle className="w-4 h-4 text-emerald-600" />}
+                    {agentStatuses.analysis === 'failed' && <XCircle className="w-4 h-4 text-red-600" />}
+                    {agentStatuses.analysis === 'not_started' && <Circle className="w-4 h-4 text-gray-400" />}
+                  </span>
+                  <span className="flex items-center space-x-1" title="Recommendation status">
+                    <span className="font-bold">R</span>
+                    {agentStatuses.recommendation === 'completed' && <CheckCircle className="w-4 h-4 text-emerald-600" />}
+                    {agentStatuses.recommendation === 'failed' && <XCircle className="w-4 h-4 text-red-600" />}
+                    {agentStatuses.recommendation === 'not_started' && <Circle className="w-4 h-4 text-gray-400" />}
+                  </span>
+                </div>
+              )}
 
               {/* Transcript */}
               <div>
