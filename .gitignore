@@ -7,27 +7,30 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
 dist
 dist-ssr
 *.local
 
-# Python cache and compiled files
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
-# Python virtual environments
-.venv/
-venv/
-ENV/
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+auris.db
 
-# Model files and directories
-models/
+# Model files and directories (for local models - now using Ollama)
 *.safetensors
 *.bin
 *.gguf
+*.ggml
 *.pth
 *.pt
 *.ckpt
@@ -35,11 +38,33 @@ models/
 *.onnx
 *.tflite
 
-# Environment files
-.env
-.env.*
+# Large data files
+*.csv
+*.json
+!package.json
+!package-lock.json
+!tsconfig*.json
+!tailwind.config.js
+!postcss.config.js
+!eslint.config.js
+!vite.config.ts
+!env.example
+!backend/env.example
+!sample_chat_log.json
 
-# Editor directories and files
+# Cache and temporary files
+.cache/
+.temp/
+tmp/
+temp/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# IDE and editor files
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -49,3 +74,68 @@ models/
 *.njsproj
 *.sln
 *.sw?
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Python specific
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# Backup files
+*.bak
+*.backup
+*.old

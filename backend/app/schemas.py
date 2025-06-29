@@ -8,6 +8,7 @@ class UserBase(BaseModel):
     name: str
     email: EmailStr
     role: UserRole
+    agent_id: Optional[str] = None
 
 class UserCreate(UserBase):
     password: str
@@ -15,6 +16,7 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
+    agent_id: Optional[str] = None
     avatar: Optional[str] = None
 
 class UserResponse(UserBase):
@@ -51,9 +53,10 @@ class RefreshTokenRequest(BaseModel):
 class TranscriptMessage(BaseModel):
     sender: str
     text: str
+    timestamp: Optional[datetime] = None
 
 class ChatLogUpload(BaseModel):
-    interaction: Dict[str, Any]  # Your JSON structure
+    transcript: List[TranscriptMessage]
 
 class ChatLogCreate(BaseModel):
     interaction_id: str
@@ -77,10 +80,10 @@ class ChatLogResponse(BaseModel):
 
 # Evaluation schemas
 class EvaluationReasoning(BaseModel):
-    coherence: str
-    relevance: str
-    politeness: str
-    resolution: str
+    coherence: Dict[str, Any]  # Contains score and reasoning
+    relevance: Dict[str, Any]  # Contains score and reasoning
+    politeness: Dict[str, Any]  # Contains score and reasoning
+    resolution: Dict[str, Any]  # Contains score and reasoning
 
 class EvaluationCreate(BaseModel):
     chat_log_id: str
@@ -99,7 +102,7 @@ class EvaluationResponse(BaseModel):
     relevance: Optional[float] = None
     politeness: Optional[float] = None
     resolution: Optional[float] = None
-    reasoning: Optional[EvaluationReasoning] = None
+    reasoning: Optional[Dict[str, Any]] = None  # Store the full reasoning object
     evaluation_summary: Optional[str] = None
     error_message: Optional[str] = None
     created_at: datetime

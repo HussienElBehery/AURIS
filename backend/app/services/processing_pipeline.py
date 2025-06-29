@@ -2,37 +2,31 @@ import logging
 import asyncio
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+import json
 import uuid
-
-from .model_loader import model_loader
+from .ollama_service import ollama_service
 from .evaluation_agent import evaluation_agent
-from .analysis_agent import analysis_agent
-from .recommendation_agent import recommendation_agent
 
 logger = logging.getLogger(__name__)
 
 class ProcessingPipeline:
     """
-    Orchestrates the processing of chat logs through all three agents.
+    Processing pipeline that integrates evaluation, analysis, and recommendation agents.
     """
     
     def __init__(self):
-        self.agents = {
-            "evaluation": evaluation_agent,
-            "analysis": analysis_agent,
-            "recommendation": recommendation_agent
-        }
+        self.current_model = None
     
     async def process_chat_log(self, transcript: List[Dict[str, str]], chat_log_id: str) -> Dict[str, Any]:
         """
-        Process a chat log through all three agents sequentially.
+        Process a chat log using all agents.
         
         Args:
             transcript: List of messages with 'sender' and 'text' keys
             chat_log_id: ID of the chat log being processed
             
         Returns:
-            Dictionary containing results from all agents
+            Dictionary containing processing results from all agents
         """
         try:
             logger.info(f"Starting processing pipeline for chat_log_id: {chat_log_id}")
@@ -47,77 +41,111 @@ class ProcessingPipeline:
                 "error_messages": {}
             }
             
-            # Load base model first
-            logger.info("Loading base model...")
-            base_model_loaded = await model_loader.load_base_model()
-            if not base_model_loaded:
-                error_msg = "Failed to load base model"
+            # Check if Ollama is running
+            if not ollama_service.is_ollama_running():
+                error_msg = "Ollama is not running"
                 logger.error(error_msg)
                 results["overall_status"] = "failed"
-                results["error_messages"]["base_model"] = error_msg
+                results["error_messages"]["ollama"] = error_msg
                 return results
             
-            # Process through each agent sequentially
-            agent_order = ["evaluation", "analysis", "recommendation"]
+            # Get available models
+            available_models = ollama_service.get_available_models()
+            if not available_models:
+                error_msg = "No models available in Ollama"
+                logger.error(error_msg)
+                results["overall_status"] = "failed"
+                results["error_messages"]["models"] = error_msg
+                return results
             
-            for agent_type in agent_order:
-                try:
-                    logger.info(f"Processing with {agent_type} agent...")
-                    
-                    # Update progress
-                    results["agents"][agent_type] = {
-                        "status": "processing",
-                        "start_time": datetime.utcnow().isoformat(),
-                        "error_message": None
-                    }
-                    
-                    # Process with current agent
-                    if agent_type == "evaluation":
-                        agent_result = await evaluation_agent.evaluate_chat(transcript)
-                    elif agent_type == "analysis":
-                        agent_result = await analysis_agent.analyze_chat(transcript)
-                    elif agent_type == "recommendation":
-                        agent_result = await recommendation_agent.generate_recommendations(transcript)
-                    else:
-                        raise ValueError(f"Unknown agent type: {agent_type}")
-                    
-                    # Check for errors in agent result
-                    if agent_result.get("error_message"):
-                        results["agents"][agent_type]["status"] = "failed"
-                        results["agents"][agent_type]["error_message"] = agent_result["error_message"]
-                        results["error_messages"][agent_type] = agent_result["error_message"]
-                        logger.error(f"{agent_type} agent failed: {agent_result['error_message']}")
-                    else:
-                        results["agents"][agent_type]["status"] = "completed"
-                        results["agents"][agent_type]["result"] = agent_result
-                        logger.info(f"{agent_type} agent completed successfully")
-                    
-                    # Unload current adapter to free memory
-                    await model_loader.unload_current_adapter()
-                    
-                except Exception as e:
-                    error_msg = f"Error in {agent_type} agent: {str(e)}"
-                    logger.error(error_msg)
-                    results["agents"][agent_type]["status"] = "failed"
-                    results["agents"][agent_type]["error_message"] = error_msg
-                    results["error_messages"][agent_type] = error_msg
-                    
-                    # Continue with next agent even if current one fails
-                    continue
+            # Use default model or first available model
+            default_model = ollama_service.get_default_model()
+            model_name = default_model
+            
+            # Check if default model is available, otherwise use first available
+            model_names = [model.get("name", "") for model in available_models]
+            if default_model not in model_names:
+                logger.warning(f"Default model {default_model} not available, using first available model")
+                model_name = available_models[0]["name"]
+            
+            logger.info(f"Using model: {model_name}")
+            
+            # Process with evaluation agent first
+            logger.info("Starting evaluation agent...")
+            evaluation_result = await evaluation_agent.evaluate_chat(transcript, model_name)
+            
+            if evaluation_result.get("error_message"):
+                results["agents"]["evaluation"] = {
+                    "status": "failed",
+                    "error_message": evaluation_result["error_message"]
+                }
+                results["error_messages"]["evaluation"] = evaluation_result["error_message"]
+                logger.error(f"Evaluation agent failed: {evaluation_result['error_message']}")
+            else:
+                results["agents"]["evaluation"] = {
+                    "status": "completed",
+                    "result": evaluation_result["result"]
+                }
+                logger.info("Evaluation agent completed successfully")
+                logger.info(f"Evaluation raw result: {json.dumps(evaluation_result['result'], indent=2)}")
+            
+            # Process with analysis agent (simplified for now)
+            logger.info("Starting analysis agent...")
+            try:
+                analysis_result = await self._run_analysis_agent(transcript, model_name)
+                results["agents"]["analysis"] = {
+                    "status": "completed",
+                    "result": analysis_result
+                }
+                logger.info("Analysis agent completed successfully")
+                logger.info(f"Analysis raw result: {json.dumps(analysis_result, indent=2)}")
+            except Exception as e:
+                error_msg = f"Analysis agent error: {str(e)}"
+                logger.error(error_msg)
+                results["agents"]["analysis"] = {
+                    "status": "failed",
+                    "error_message": error_msg
+                }
+                results["error_messages"]["analysis"] = error_msg
+            
+            # Process with recommendation agent (simplified for now)
+            logger.info("Starting recommendation agent...")
+            try:
+                recommendation_result = await self._run_recommendation_agent(transcript, model_name)
+                results["agents"]["recommendation"] = {
+                    "status": "completed",
+                    "result": recommendation_result
+                }
+                logger.info("Recommendation agent completed successfully")
+                logger.info(f"Recommendation raw result: {json.dumps(recommendation_result, indent=2)}")
+            except Exception as e:
+                error_msg = f"Recommendation agent error: {str(e)}"
+                logger.error(error_msg)
+                results["agents"]["recommendation"] = {
+                    "status": "failed",
+                    "error_message": error_msg
+                }
+                results["error_messages"]["recommendation"] = error_msg
             
             # Determine overall status
-            failed_agents = [agent for agent, data in results["agents"].items() 
-                           if data["status"] == "failed"]
-            
-            if len(failed_agents) == len(agent_order):
-                results["overall_status"] = "failed"
-            elif len(failed_agents) > 0:
-                results["overall_status"] = "partial_success"
+            failed_agents = [agent for agent, data in results["agents"].items() if data["status"] == "failed"]
+            if failed_agents:
+                if len(failed_agents) == len(results["agents"]):
+                    results["overall_status"] = "failed"
+                else:
+                    results["overall_status"] = "completed"  # Partial success
             else:
                 results["overall_status"] = "completed"
             
             results["end_time"] = datetime.utcnow().isoformat()
             logger.info(f"Processing pipeline completed with status: {results['overall_status']}")
+            
+            # Automatically unload the model after processing is complete
+            try:
+                logger.info(f"Auto-unloading model {model_name} after processing completion")
+                ollama_service.unload_model()
+            except Exception as e:
+                logger.warning(f"Failed to auto-unload model after processing: {e}")
             
             return results
             
@@ -133,10 +161,79 @@ class ProcessingPipeline:
                 "error_messages": {"pipeline": str(e)}
             }
     
+    async def _run_analysis_agent(self, transcript: List[Dict[str, str]], model_name: str) -> Dict[str, Any]:
+        """Run the analysis agent (simplified version)."""
+        transcript_text = self._format_transcript(transcript)
+        
+        analysis_prompt = f"""
+        Analyze this customer service conversation and provide:
+        1. Key issues discussed
+        2. Guidelines compliance assessment
+        3. Areas for improvement
+        4. Overall conversation quality
+        
+        Conversation:
+        {transcript_text}
+        
+        Please provide a structured analysis.
+        """
+        
+        response = ollama_service.generate_evaluation(model_name, analysis_prompt)
+        
+        if response.startswith("Error"):
+            raise Exception(response)
+        
+        return {
+            "analysis": response,
+            "model_used": model_name,
+            "agent": "analysis_agent"
+        }
+    
+    async def _run_recommendation_agent(self, transcript: List[Dict[str, str]], model_name: str) -> Dict[str, Any]:
+        """Run the recommendation agent (simplified version)."""
+        transcript_text = self._format_transcript(transcript)
+        
+        recommendation_prompt = f"""
+        Based on this customer service conversation, provide:
+        1. Specific recommendations for improvement
+        2. Coaching suggestions for the agent
+        3. Best practices that could be applied
+        4. Alternative response approaches
+        
+        Conversation:
+        {transcript_text}
+        
+        Please provide actionable recommendations.
+        """
+        
+        response = ollama_service.generate_evaluation(model_name, recommendation_prompt)
+        
+        if response.startswith("Error"):
+            raise Exception(response)
+        
+        return {
+            "recommendations": response,
+            "model_used": model_name,
+            "agent": "recommendation_agent"
+        }
+    
+    def _format_transcript(self, transcript: List[Dict[str, str]]) -> str:
+        """Format transcript for analysis."""
+        formatted = []
+        for message in transcript:
+            sender = message.get("sender", "Unknown")
+            text = message.get("text", "")
+            timestamp = message.get("timestamp", "")
+            
+            if timestamp:
+                formatted.append(f"[{timestamp}] {sender}: {text}")
+            else:
+                formatted.append(f"{sender}: {text}")
+        return "\n".join(formatted)
+    
     async def get_processing_status(self, chat_log_id: str) -> Dict[str, Any]:
         """
         Get the current processing status for a chat log.
-        This would typically query the database for stored results.
         
         Args:
             chat_log_id: ID of the chat log
@@ -144,8 +241,6 @@ class ProcessingPipeline:
         Returns:
             Dictionary containing processing status
         """
-        # This would typically query the database
-        # For now, return a placeholder
         return {
             "chat_log_id": chat_log_id,
             "status": "unknown",
@@ -157,11 +252,7 @@ class ProcessingPipeline:
         """
         Clean up resources.
         """
-        try:
-            model_loader.cleanup()
-            logger.info("Processing pipeline cleanup completed")
-        except Exception as e:
-            logger.error(f"Error during cleanup: {e}")
+        logger.info("Processing pipeline cleanup completed")
 
 # Global processing pipeline instance
 processing_pipeline = ProcessingPipeline() 

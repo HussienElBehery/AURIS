@@ -1,21 +1,20 @@
 import logging
-import json
-from typing import Dict, Any, List, Optional
-from .model_loader import model_loader
+from typing import Dict, Any, List
+from .ollama_service import ollama_service
 
 logger = logging.getLogger(__name__)
 
 class RecommendationAgent:
     """
-    Agent responsible for generating improvement recommendations for chat interactions.
+    Simplified recommendation agent that works with Ollama.
     """
     
     def __init__(self):
-        self.agent_type = "recommendation"
+        self.name = "recommendation_agent"
     
-    async def process_chat_log(self, transcript: List[Dict[str, str]]) -> Dict[str, Any]:
+    async def generate_recommendations(self, transcript: List[Dict[str, str]]) -> Dict[str, Any]:
         """
-        Process a chat log and return recommendation results.
+        Generate recommendations based on a chat conversation using Ollama.
         
         Args:
             transcript: List of messages with 'sender' and 'text' keys
@@ -24,142 +23,80 @@ class RecommendationAgent:
             Dictionary containing recommendation results
         """
         try:
-            logger.info("Starting recommendation agent processing")
+            # Check if Ollama is running
+            if not ollama_service.is_ollama_running():
+                return {
+                    "error_message": "Ollama is not running",
+                    "recommendations": None
+                }
             
-            # Ensure base model is loaded
-            if model_loader.base_model is None:
-                success = model_loader.load_base_model()
-                if not success:
-                    logger.error("Failed to load base model")
-                    return self._create_error_response("Failed to load base model")
+            # Get available models
+            available_models = ollama_service.get_available_models()
+            if not available_models:
+                return {
+                    "error_message": "No models available in Ollama",
+                    "recommendations": None
+                }
             
-            # Prepare transcript for model input
-            formatted_transcript = self._format_transcript(transcript)
+            # Use the first available model
+            model_name = available_models[0]["name"]
             
-            # Generate recommendations using the model
-            recommendation_result = await self._generate_recommendations(formatted_transcript)
+            # Format transcript for recommendations
+            transcript_text = self._format_transcript(transcript)
             
-            # Parse the model output
-            parsed_result = self._parse_recommendation_output(recommendation_result)
+            # Create recommendation prompt
+            recommendation_prompt = f"""
+            Based on this customer service conversation, provide:
+            1. Specific recommendations for the agent
+            2. Training suggestions
+            3. Process improvements
+            4. Best practices to follow
+            5. Areas for skill development
             
-            logger.info("Recommendation agent processing completed")
+            Conversation:
+            {transcript_text}
+            
+            Please provide actionable recommendations.
+            """
+            
+            # Generate recommendations using Ollama
+            response = ollama_service.test_generation(model_name, recommendation_prompt)
+            
+            if response.startswith("Error"):
+                return {
+                    "error_message": response,
+                    "recommendations": None
+                }
+            
             return {
-                "status": "completed",
-                "agent_type": self.agent_type,
-                "result": parsed_result
+                "recommendations": {
+                    "suggestions": response,
+                    "model_used": model_name,
+                    "agent": self.name
+                },
+                "error_message": None
             }
             
         except Exception as e:
             logger.error(f"Error in recommendation agent: {e}")
             return {
-                "status": "failed",
-                "agent_type": self.agent_type,
-                "error_message": str(e)
+                "error_message": str(e),
+                "recommendations": None
             }
     
     def _format_transcript(self, transcript: List[Dict[str, str]]) -> str:
-        """
-        Format transcript for model input.
-        """
-        formatted = "Chat Transcript:\n\n"
-        for i, message in enumerate(transcript, 1):
-            sender = message.get('sender', 'unknown')
-            text = message.get('text', '')
-            formatted += f"{i}. {sender.capitalize()}: {text}\n\n"
-        
-        return formatted
-    
-    async def _generate_recommendations(self, formatted_transcript: str) -> str:
-        """
-        Generate recommendations using the loaded model.
-        """
-        try:
-            # Create prompt for recommendations
-            prompt = f"""
-            Please analyze the following customer service chat transcript and provide improvement recommendations:
-            1. Identify the most problematic message from the agent
-            2. Provide an improved version of that message
-            3. Explain the reasoning for the improvement
-            4. Provide coaching suggestions for the agent
-
-            {formatted_transcript}
-
-            Please respond in the following JSON format:
-            {{
-                "original_message": "The specific message that needs improvement",
-                "improved_message": "The improved version of the message",
-                "reasoning": "Explanation of why this improvement is better",
-                "coaching_suggestions": [
-                    "Be more concise and direct",
-                    "Show more empathy towards the customer's situation",
-                    "Provide specific next steps"
-                ]
-            }}
-            """
+        """Format transcript for recommendations."""
+        formatted = []
+        for message in transcript:
+            sender = message.get("sender", "Unknown")
+            text = message.get("text", "")
+            timestamp = message.get("timestamp", "")
             
-            # Generate response using the current model_loader API
-            response = model_loader.generate_response(prompt, self.agent_type, max_length=512)
-            
-            # Extract the JSON part from the response
-            json_start = response.find('{')
-            json_end = response.rfind('}') + 1
-            if json_start != -1 and json_end != 0:
-                json_response = response[json_start:json_end]
-                return json_response
+            if timestamp:
+                formatted.append(f"[{timestamp}] {sender}: {text}")
             else:
-                return response
-                
-        except Exception as e:
-            logger.error(f"Error generating recommendations: {e}")
-            raise e
-    
-    def _parse_recommendation_output(self, model_output: str) -> Dict[str, Any]:
-        """
-        Parse the model output into structured recommendation data.
-        """
-        try:
-            # Try to parse as JSON
-            if model_output.strip().startswith('{'):
-                parsed = json.loads(model_output)
-                
-                return {
-                    "original_message": parsed.get("original_message", "N/A"),
-                    "improved_message": parsed.get("improved_message", "N/A"),
-                    "reasoning": parsed.get("reasoning", "N/A"),
-                    "coaching_suggestions": parsed.get("coaching_suggestions", []),
-                    "error_message": None
-                }
-            else:
-                # Fallback if JSON parsing fails
-                return {
-                    "original_message": "N/A",
-                    "improved_message": "N/A",
-                    "reasoning": "N/A",
-                    "coaching_suggestions": [],
-                    "error_message": "Failed to parse model output"
-                }
-                
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse recommendation output as JSON: {e}")
-            return {
-                "original_message": "N/A",
-                "improved_message": "N/A",
-                "reasoning": "N/A",
-                "coaching_suggestions": [],
-                "error_message": f"JSON parsing error: {str(e)}"
-            }
-    
-    def _create_error_response(self, error_message: str) -> Dict[str, Any]:
-        """
-        Create a standardized error response.
-        """
-        return {
-            "original_message": "N/A",
-            "improved_message": "N/A",
-            "reasoning": "N/A",
-            "coaching_suggestions": [],
-            "error_message": error_message
-        }
+                formatted.append(f"{sender}: {text}")
+        return "\n".join(formatted)
 
 # Global recommendation agent instance
 recommendation_agent = RecommendationAgent() 

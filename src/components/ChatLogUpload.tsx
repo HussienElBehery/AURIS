@@ -1,6 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { api } from '../services/api';
 import { ChatLog, ProcessingStatus } from '../types';
+import { useUpload } from '../contexts/UploadContext';
 
 interface ChatLogUploadProps {
   onUploadSuccess?: (chatLog: ChatLog) => void;
@@ -11,100 +12,167 @@ const ChatLogUpload: React.FC<ChatLogUploadProps> = ({
   onUploadSuccess, 
   onProcessingComplete 
 }) => {
-  const [isUploading, setIsUploading] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [uploadedChatLog, setUploadedChatLog] = useState<ChatLog | null>(null);
-  const [processingStatus, setProcessingStatus] = useState<ProcessingStatus>('pending');
-  const [progress, setProgress] = useState<Record<string, string>>({});
-  const [errorMessages, setErrorMessages] = useState<Record<string, string>>({});
-  const [error, setError] = useState<string | null>(null);
+  const { uploadState, setUploadState } = useUpload();
+  const [settingDefault, setSettingDefault] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pollIntervalRef = useRef<number | null>(null);
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     if (!file.name.endsWith('.json')) {
-      setError('Please select a JSON file');
+      setUploadState(prev => ({ ...prev, error: 'Please select a JSON file' }));
       return;
     }
 
-    setIsUploading(true);
-    setError(null);
+    setUploadState(prev => ({ ...prev, isUploading: true, error: null }));
 
     try {
       const chatLog = await api.chatLogs.upload(file);
-      setUploadedChatLog(chatLog);
+      setUploadState(prev => ({ 
+        ...prev, 
+        uploadedChatLog: chatLog, 
+        isUploading: false 
+      }));
       onUploadSuccess?.(chatLog);
       
       // Start processing automatically
       await startProcessing(chatLog.id);
     } catch (err: any) {
-      setError(err.message || 'Failed to upload file');
-    } finally {
-      setIsUploading(false);
+      setUploadState(prev => ({ 
+        ...prev, 
+        error: err.message || 'Failed to upload file',
+        isUploading: false 
+      }));
     }
   };
 
   const startProcessing = async (chatLogId: string) => {
-    setIsProcessing(true);
-    setProcessingStatus('processing');
+    setUploadState(prev => ({ 
+      ...prev, 
+      isProcessing: true, 
+      processingStatus: 'processing' 
+    }));
 
     try {
       await api.chatLogs.process(chatLogId);
       
       // Poll for status updates
-      const pollInterval = setInterval(async () => {
+      pollIntervalRef.current = setInterval(async () => {
         try {
           const status = await api.chatLogs.getStatus(chatLogId);
-          setProcessingStatus(status.status);
-          setProgress(status.progress);
-          setErrorMessages(status.error_messages);
+          setUploadState(prev => ({
+            ...prev,
+            processingStatus: status.status,
+            progress: status.progress,
+            errorMessages: status.error_messages
+          }));
 
           if (status.status === 'completed' || status.status === 'failed') {
-            clearInterval(pollInterval);
-            setIsProcessing(false);
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
+            setUploadState(prev => ({ ...prev, isProcessing: false }));
             onProcessingComplete?.(chatLogId);
           }
         } catch (err: any) {
           console.error('Error polling status:', err);
-          clearInterval(pollInterval);
-          setIsProcessing(false);
-          setError('Failed to get processing status');
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
+          setUploadState(prev => ({ 
+            ...prev, 
+            isProcessing: false, 
+            error: 'Failed to get processing status' 
+          }));
         }
       }, 2000); // Poll every 2 seconds
 
       // Stop polling after 10 minutes
       setTimeout(() => {
-        clearInterval(pollInterval);
-        if (isProcessing) {
-          setIsProcessing(false);
-          setError('Processing timeout - please check status manually');
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+        if (uploadState.isProcessing) {
+          setUploadState(prev => ({ 
+            ...prev, 
+            isProcessing: false, 
+            error: 'Processing timeout - please check status manually' 
+          }));
         }
       }, 600000);
 
     } catch (err: any) {
-      setIsProcessing(false);
-      setError(err.message || 'Failed to start processing');
+      setUploadState(prev => ({ 
+        ...prev, 
+        isProcessing: false, 
+        error: err.message || 'Failed to start processing' 
+      }));
     }
   };
 
   const handleRetry = () => {
-    if (uploadedChatLog) {
-      startProcessing(uploadedChatLog.id);
+    if (uploadState.uploadedChatLog) {
+      startProcessing(uploadState.uploadedChatLog.id);
     }
   };
 
-  const handleNewUpload = () => {
-    setUploadedChatLog(null);
-    setProcessingStatus('pending');
-    setProgress({});
-    setErrorMessages({});
-    setError(null);
+  const handleCancel = () => {
+    // Clear polling interval
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    
+    // Reset to upload state
+    setUploadState({
+      isUploading: false,
+      isProcessing: false,
+      uploadedChatLog: null,
+      processingStatus: 'pending',
+      progress: {},
+      errorMessages: {},
+      error: null,
+    });
+    
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
+
+  const handleNewUpload = () => {
+    // Clear polling interval
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    
+    setUploadState({
+      isUploading: false,
+      isProcessing: false,
+      uploadedChatLog: null,
+      processingStatus: 'pending',
+      progress: {},
+      errorMessages: {},
+      error: null,
+    });
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
+  }, []);
 
   const getStatusColor = (status: ProcessingStatus) => {
     switch (status) {
@@ -132,7 +200,7 @@ const ChatLogUpload: React.FC<ChatLogUploadProps> = ({
         Upload Chat Log
       </h2>
 
-      {!uploadedChatLog ? (
+      {!uploadState.uploadedChatLog ? (
         <div className="space-y-4">
           <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center">
             <input
@@ -141,23 +209,71 @@ const ChatLogUpload: React.FC<ChatLogUploadProps> = ({
               accept=".json"
               onChange={handleFileSelect}
               className="hidden"
-              disabled={isUploading}
+              disabled={uploadState.isUploading}
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              disabled={isUploading}
+              disabled={uploadState.isUploading}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isUploading ? 'Uploading...' : 'Select JSON File'}
+              {uploadState.isUploading ? 'Uploading...' : 'Select JSON File'}
             </button>
             <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
               Upload a JSON file containing chat log data
             </p>
           </div>
 
-          {error && (
+          {/* JSON Format Instructions */}
+          <div className="bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg p-6">
+            <h3 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center">
+              <svg className="w-5 h-5 mr-2 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Expected JSON Format
+            </h3>
+            <div className="text-sm text-gray-700 dark:text-gray-300 space-y-3">
+              <p>The JSON file should contain a <code className="bg-gray-200 dark:bg-gray-600 px-2 py-1 rounded text-blue-600 dark:text-blue-400 font-mono">transcript</code> array with message objects:</p>
+              <div className="bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md p-4">
+                <pre className="text-xs overflow-x-auto text-gray-800 dark:text-gray-200 font-mono leading-relaxed">
+{`{
+  "transcript": [
+    {
+      "sender": "customer",
+      "text": "Message text here",
+      "timestamp": "2024-01-15T14:30:00" // Optional
+    },
+    {
+      "sender": "agent", 
+      "text": "Response text here"
+      // timestamp is optional - will use current time if not provided
+    }
+  ]
+}`}
+                </pre>
+              </div>
+              <div className="bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-400 dark:border-blue-500 p-3 rounded-r-md">
+                <h4 className="font-medium text-blue-800 dark:text-blue-200 mb-2">Required Fields:</h4>
+                <ul className="space-y-1 text-blue-700 dark:text-blue-300">
+                  <li className="flex items-center">
+                    <span className="w-2 h-2 bg-blue-400 dark:bg-blue-500 rounded-full mr-2"></span>
+                    <strong>sender:</strong> Must be "customer" or "agent"
+                  </li>
+                  <li className="flex items-center">
+                    <span className="w-2 h-2 bg-blue-400 dark:bg-blue-500 rounded-full mr-2"></span>
+                    <strong>text:</strong> The message content (required)
+                  </li>
+                  <li className="flex items-center">
+                    <span className="w-2 h-2 bg-blue-400 dark:bg-blue-500 rounded-full mr-2"></span>
+                    <strong>timestamp:</strong> Optional ISO format timestamp
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {uploadState.error && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4">
-              <p className="text-red-800 dark:text-red-200">{error}</p>
+              <p className="text-red-800 dark:text-red-200">{uploadState.error}</p>
             </div>
           )}
         </div>
@@ -168,7 +284,7 @@ const ChatLogUpload: React.FC<ChatLogUploadProps> = ({
               File uploaded successfully!
             </h3>
             <p className="text-sm text-green-700 dark:text-green-300 mt-1">
-              Interaction ID: {uploadedChatLog.interactionId}
+              Interaction ID: {uploadState.uploadedChatLog.interaction_id}
             </p>
           </div>
 
@@ -182,12 +298,12 @@ const ChatLogUpload: React.FC<ChatLogUploadProps> = ({
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Overall Status:
                 </span>
-                <span className={`text-sm font-medium ${getStatusColor(processingStatus)}`}>
-                  {processingStatus.charAt(0).toUpperCase() + processingStatus.slice(1)}
+                <span className={`text-sm font-medium ${getStatusColor(uploadState.processingStatus)}`}>
+                  {uploadState.processingStatus.charAt(0).toUpperCase() + uploadState.processingStatus.slice(1)}
                 </span>
               </div>
 
-              {Object.entries(progress).map(([agent, status]) => (
+              {Object.entries(uploadState.progress).map(([agent, status]) => (
                 <div key={agent} className="flex items-center justify-between">
                   <span className="text-sm text-gray-600 dark:text-gray-400 capitalize">
                     {agent} Agent:
@@ -199,12 +315,12 @@ const ChatLogUpload: React.FC<ChatLogUploadProps> = ({
               ))}
             </div>
 
-            {Object.keys(errorMessages).length > 0 && (
+            {Object.keys(uploadState.errorMessages).length > 0 && (
               <div className="mt-4 space-y-2">
                 <h4 className="text-sm font-medium text-red-700 dark:text-red-300">
                   Errors:
                 </h4>
-                {Object.entries(errorMessages).map(([agent, error]) => (
+                {Object.entries(uploadState.errorMessages).map(([agent, error]) => (
                   <div key={agent} className="text-xs text-red-600 dark:text-red-400">
                     <span className="font-medium capitalize">{agent}:</span> {error}
                   </div>
@@ -212,7 +328,7 @@ const ChatLogUpload: React.FC<ChatLogUploadProps> = ({
               </div>
             )}
 
-            {isProcessing && (
+            {uploadState.isProcessing && (
               <div className="mt-4">
                 <div className="flex items-center space-x-2">
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
@@ -225,12 +341,20 @@ const ChatLogUpload: React.FC<ChatLogUploadProps> = ({
           </div>
 
           <div className="flex space-x-3">
-            {processingStatus === 'failed' && (
+            {uploadState.processingStatus === 'failed' && (
               <button
                 onClick={handleRetry}
                 className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
               >
                 Retry Processing
+              </button>
+            )}
+            {uploadState.isProcessing && (
+              <button
+                onClick={handleCancel}
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+              >
+                Cancel Processing
               </button>
             )}
             <button

@@ -13,7 +13,7 @@ from ..schemas import (
     EvaluationResponse, AnalysisResponse, RecommendationResponse, MessageResponse
 )
 from ..services.processing_pipeline import processing_pipeline
-from ..services.model_loader import model_loader
+from ..services.ollama_service import ollama_service
 
 router = APIRouter(prefix="/chat-logs", tags=["chat-logs"])
 
@@ -22,23 +22,14 @@ async def get_model_status(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Debug endpoint to check model and tokenizer loading status.
+    Debug endpoint to check Ollama status.
     """
     try:
         model_info = {
-            "base_model_loaded": model_loader.is_model_loaded(),
-            "current_adapter": model_loader.get_current_adapter(),
-            "tokenizer_info": model_loader.get_tokenizer_info(),
-            "models_directory": str(model_loader.models_dir.absolute()),
-            "adapter_paths": {
-                agent: {
-                    "adapter_path": str(config["adapter_path"].absolute()),
-                    "tokenizer_path": str(config["tokenizer_path"].absolute()),
-                    "adapter_exists": config["adapter_path"].exists(),
-                    "tokenizer_exists": config["tokenizer_path"].exists()
-                }
-                for agent, config in model_loader.agent_adapters.items()
-            }
+            "ollama_running": ollama_service.is_ollama_running(),
+            "available_models": ollama_service.get_available_models(),
+            "current_model": ollama_service.get_current_model(),
+            "system_info": ollama_service.get_system_info()
         }
         
         return model_info
@@ -67,33 +58,68 @@ async def upload_chat_log(
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="Invalid JSON format")
         
-        # Extract interaction data
-        interaction = data.get('interaction', {})
-        if not interaction:
-            raise HTTPException(status_code=400, detail="No interaction data found in JSON")
-        
-        # Extract transcript
-        transcript_data = interaction.get('transcript', [])
+        # Extract transcript data
+        transcript_data = data.get('transcript', [])
         if not transcript_data:
             raise HTTPException(status_code=400, detail="No transcript data found")
         
-        # Convert transcript to our format
+        # Convert transcript to our format with optional timestamps
         transcript = []
+        
         for message in transcript_data:
             if isinstance(message, dict):
                 sender = message.get('sender', 'unknown')
                 text = message.get('text', '')
+                timestamp = message.get('timestamp')
+                
                 if text:  # Only add non-empty messages
-                    transcript.append({"sender": sender, "text": text})
+                    message_data = {"sender": sender, "text": text}
+                    
+                    # Handle timestamp
+                    if timestamp:
+                        # If timestamp is a string, try to parse it
+                        if isinstance(timestamp, str):
+                            try:
+                                # Try different timestamp formats
+                                for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
+                                    try:
+                                        parsed_timestamp = datetime.strptime(timestamp, fmt)
+                                        message_data["timestamp"] = parsed_timestamp.isoformat()
+                                        break
+                                    except ValueError:
+                                        continue
+                                else:
+                                    # If no format matches, use current time
+                                    message_data["timestamp"] = datetime.now().isoformat()
+                            except:
+                                message_data["timestamp"] = datetime.now().isoformat()
+                        else:
+                            message_data["timestamp"] = timestamp
+                    else:
+                        # No timestamp provided, use current time
+                        message_data["timestamp"] = datetime.now().isoformat()
+                    
+                    transcript.append(message_data)
         
         if not transcript:
             raise HTTPException(status_code=400, detail="No valid messages found in transcript")
         
         # Create chat log record
         chat_log_id = str(uuid.uuid4())
-        interaction_id = interaction.get('interaction_id', str(uuid.uuid4()))
-        agent_id = interaction.get('agent_id')
-        agent_persona = interaction.get('agent_persona')
+        interaction_id = f"chat-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{chat_log_id[:8]}"
+        
+        # Determine agent_id and agent_persona
+        agent_id = None
+        agent_persona = None
+        
+        if current_user.role == "agent":
+            # If user is an agent, assign them as the agent for this chat
+            agent_id = current_user.agent_id or current_user.id
+            agent_persona = f"{current_user.name} - {current_user.role.title()}"
+        else:
+            # For managers, agent will be assigned later
+            agent_id = None
+            agent_persona = None
         
         chat_log = ChatLog(
             id=chat_log_id,
@@ -318,16 +344,113 @@ async def get_recommendation(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting recommendation: {str(e)}")
 
+@router.post("/{chat_log_id}/assign-agent")
+async def assign_agent_to_chat(
+    chat_log_id: str,
+    request: Dict[str, Any],
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Assign an agent to a chat log (managers only)
+    """
+    try:
+        # Only managers can assign agents
+        if current_user.role != "manager":
+            raise HTTPException(status_code=403, detail="Only managers can assign agents")
+        
+        agent_id = request.get("agent_id")
+        agent_persona = request.get("agent_persona", "Customer Service Agent")
+        
+        if not agent_id:
+            raise HTTPException(status_code=400, detail="agent_id is required")
+        
+        # Get chat log
+        chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
+        if not chat_log:
+            raise HTTPException(status_code=404, detail="Chat log not found")
+        
+        # Update chat log with assigned agent
+        chat_log.agent_id = agent_id
+        chat_log.agent_persona = agent_persona
+        
+        db.commit()
+        db.refresh(chat_log)
+        
+        return {
+            "success": True,
+            "message": f"Agent {agent_id} assigned to chat log {chat_log_id}",
+            "data": {
+                "chat_log_id": chat_log_id,
+                "agent_id": agent_id,
+                "agent_persona": agent_persona
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error assigning agent: {str(e)}")
+
+@router.delete("/{chat_log_id}")
+async def delete_chat_log(
+    chat_log_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a chat log (only the uploader or managers can delete)
+    """
+    try:
+        # Get chat log
+        chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
+        if not chat_log:
+            raise HTTPException(status_code=404, detail="Chat log not found")
+        
+        # Check permissions
+        if current_user.role != "manager" and chat_log.uploaded_by != current_user.id:
+            raise HTTPException(status_code=403, detail="You can only delete your own chat logs")
+        
+        # Delete related records first
+        db.query(Evaluation).filter(Evaluation.chat_log_id == chat_log_id).delete()
+        db.query(Analysis).filter(Analysis.chat_log_id == chat_log_id).delete()
+        db.query(Recommendation).filter(Recommendation.chat_log_id == chat_log_id).delete()
+        
+        # Delete the chat log
+        db.delete(chat_log)
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"Chat log {chat_log_id} deleted successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting chat log: {str(e)}")
+
 @router.get("/", response_model=List[ChatLogResponse])
 async def list_chat_logs(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    List all chat logs for the current user.
+    List chat logs based on user role:
+    - Agents see chats assigned to them
+    - Managers see all chats
     """
     try:
-        chat_logs = db.query(ChatLog).filter(ChatLog.uploaded_by == current_user.id).all()
+        if current_user.role == "manager":
+            # Managers can see all chat logs
+            chat_logs = db.query(ChatLog).all()
+        else:
+            # Agents see chats assigned to them OR uploaded by them
+            agent_id = current_user.agent_id or current_user.id
+            chat_logs = db.query(ChatLog).filter(
+                (ChatLog.agent_id == agent_id) | 
+                (ChatLog.uploaded_by == current_user.id)
+            ).all()
         
         return [
             ChatLogResponse(
@@ -346,6 +469,44 @@ async def list_chat_logs(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error listing chat logs: {str(e)}")
+
+@router.get("/{chat_log_id}", response_model=ChatLogResponse)
+async def get_chat_log(
+    chat_log_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get a single chat log by ID
+    """
+    try:
+        # Get chat log
+        chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
+        if not chat_log:
+            raise HTTPException(status_code=404, detail="Chat log not found")
+        
+        # Check permissions
+        if current_user.role != "manager":
+            agent_id = current_user.agent_id or current_user.id
+            if chat_log.agent_id != agent_id and chat_log.uploaded_by != current_user.id:
+                raise HTTPException(status_code=403, detail="You can only view your own chat logs")
+        
+        return ChatLogResponse(
+            id=chat_log.id,
+            interaction_id=chat_log.interaction_id,
+            agent_id=chat_log.agent_id,
+            agent_persona=chat_log.agent_persona,
+            transcript=chat_log.transcript,
+            status=chat_log.status,
+            uploaded_by=chat_log.uploaded_by,
+            created_at=chat_log.created_at,
+            updated_at=chat_log.updated_at
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting chat log: {str(e)}")
 
 async def process_chat_log_background(
     chat_log_id: str,
@@ -366,16 +527,17 @@ async def process_chat_log_background(
                 result = agent_data["result"]
                 
                 if agent_type == "evaluation":
+                    result_data = result
                     evaluation = Evaluation(
                         id=str(uuid.uuid4()),
                         chat_log_id=chat_log_id,
-                        coherence=result.get("coherence"),
-                        relevance=result.get("relevance"),
-                        politeness=result.get("politeness"),
-                        resolution=result.get("resolution"),
-                        reasoning=result.get("reasoning"),
-                        evaluation_summary=result.get("evaluation_summary"),
-                        error_message=result.get("error_message")
+                        coherence=result_data.get("coherence", {}).get("score"),
+                        relevance=result_data.get("relevance", {}).get("score"),
+                        politeness=result_data.get("politeness", {}).get("score"),
+                        resolution=result_data.get("resolution", {}).get("score"),
+                        reasoning=result_data,  # Store the full reasoning object
+                        evaluation_summary=result_data.get("evaluation_summary"),
+                        error_message=result_data.get("error_message")
                     )
                     db.add(evaluation)
                 

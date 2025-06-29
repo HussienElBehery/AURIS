@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     SMTP_USER: Optional[str] = os.getenv("SMTP_USER")
     SMTP_PASSWORD: Optional[str] = os.getenv("SMTP_PASSWORD")
     
+    # Ollama Settings
+    DEFAULT_MODEL: str = os.getenv("DEFAULT_MODEL", "deepseek-r1:latest")
+    
     class Config:
         env_file = ".env"
         extra = "ignore"  # Ignore extra fields in .env file

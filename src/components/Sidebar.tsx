@@ -10,14 +10,18 @@ import {
   LogOut,
   Moon,
   Sun,
-  Database
+  Database,
+  Upload,
+  Loader2
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { useUpload } from '../contexts/UploadContext';
 
 const Sidebar: React.FC = () => {
   const { user, logout } = useAuth();
   const { isDark, toggle } = useTheme();
+  const { uploadState } = useUpload();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -79,6 +83,39 @@ const Sidebar: React.FC = () => {
             </li>
           ))}
         </ul>
+
+        {/* Upload Progress Indicator */}
+        {(uploadState.isUploading || uploadState.isProcessing) && (
+          <div className="mt-6 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-700">
+            <div className="flex items-center space-x-2 mb-2">
+              {uploadState.isUploading ? (
+                <Upload className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              ) : (
+                <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin" />
+              )}
+              <span className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                {uploadState.isUploading ? 'Uploading...' : 'Processing...'}
+              </span>
+            </div>
+            
+            {uploadState.isProcessing && (
+              <div className="space-y-1">
+                {Object.entries(uploadState.progress).map(([agent, status]) => (
+                  <div key={agent} className="flex items-center justify-between text-xs">
+                    <span className="text-blue-700 dark:text-blue-300 capitalize">{agent}:</span>
+                    <span className={`font-medium ${
+                      status === 'completed' ? 'text-green-600 dark:text-green-400' :
+                      status === 'failed' ? 'text-red-600 dark:text-red-400' :
+                      'text-blue-600 dark:text-blue-400'
+                    }`}>
+                      {status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </nav>
 
       {/* Bottom Actions */}

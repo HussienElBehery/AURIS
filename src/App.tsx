@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { UploadProvider } from './contexts/UploadContext';
 import Sidebar from './components/Sidebar';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
@@ -45,50 +46,52 @@ function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <Router>
-          <AppLayout>
-            <Routes>
-              <Route path="/" element={<LandingPage />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/signup" element={<SignupPage />} />
-              <Route path="/dashboard" element={
-                <ProtectedRoute>
-                  <Dashboard />
-                </ProtectedRoute>
-              } />
-              <Route path="/chats" element={
-                <ProtectedRoute>
-                  <ChatsPage />
-                </ProtectedRoute>
-              } />
-              <Route path="/evaluation" element={
-                <ProtectedRoute>
-                  <EvaluationPage />
-                </ProtectedRoute>
-              } />
-              <Route path="/analysis" element={
-                <ProtectedRoute>
-                  <AnalysisPage />
-                </ProtectedRoute>
-              } />
-              <Route path="/recommendation" element={
-                <ProtectedRoute>
-                  <RecommendationPage />
-                </ProtectedRoute>
-              } />
-              <Route path="/report" element={
-                <ProtectedRoute>
-                  <ReportPage />
-                </ProtectedRoute>
-              } />
-              <Route path="/models" element={
-                <ProtectedRoute>
-                  <ModelManager />
-                </ProtectedRoute>
-              } />
-            </Routes>
-          </AppLayout>
-        </Router>
+        <UploadProvider>
+          <Router>
+            <AppLayout>
+              <Routes>
+                <Route path="/" element={<LandingPage />} />
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/signup" element={<SignupPage />} />
+                <Route path="/dashboard" element={
+                  <ProtectedRoute>
+                    <Dashboard />
+                  </ProtectedRoute>
+                } />
+                <Route path="/chats" element={
+                  <ProtectedRoute>
+                    <ChatsPage />
+                  </ProtectedRoute>
+                } />
+                <Route path="/evaluation" element={
+                  <ProtectedRoute>
+                    <EvaluationPage />
+                  </ProtectedRoute>
+                } />
+                <Route path="/analysis" element={
+                  <ProtectedRoute>
+                    <AnalysisPage />
+                  </ProtectedRoute>
+                } />
+                <Route path="/recommendation" element={
+                  <ProtectedRoute>
+                    <RecommendationPage />
+                  </ProtectedRoute>
+                } />
+                <Route path="/report" element={
+                  <ProtectedRoute>
+                    <ReportPage />
+                  </ProtectedRoute>
+                } />
+                <Route path="/models" element={
+                  <ProtectedRoute>
+                    <ModelManager />
+                  </ProtectedRoute>
+                } />
+              </Routes>
+            </AppLayout>
+          </Router>
+        </UploadProvider>
       </AuthProvider>
     </ThemeProvider>
   );

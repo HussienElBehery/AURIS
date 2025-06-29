@@ -22,12 +22,19 @@ def register(user_data: RegisterRequest, db: Session = Depends(get_db)):
     
     # Create new user
     hashed_password = get_password_hash(user_data.password)
+    
+    # Generate agent_id for agents
+    agent_id = None
+    if user_data.role == "agent":
+        agent_id = f"agent-{generate_uuid()[:8]}"
+    
     user = User(
         id=generate_uuid(),
         name=user_data.name,
         email=user_data.email,
         hashed_password=hashed_password,
-        role=user_data.role
+        role=user_data.role,
+        agent_id=agent_id
     )
     
     db.add(user)

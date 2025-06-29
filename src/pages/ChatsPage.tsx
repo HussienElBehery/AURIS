@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Search, Filter, Download, Eye, Trash2, Plus, Database } from 'lucide-react';
+import { Upload, Search, Filter, Download, Eye, Trash2, Plus, Database, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
 import { ChatLog, ProcessingStatus } from '../types';
@@ -9,12 +9,14 @@ import { MOCK_CHATLOGS, MOCK_AGENTS } from '../data/mockData';
 const ChatsPage: React.FC = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'view' | 'upload'>('view');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'processing' | 'completed' | 'failed'>('all');
-  const [selectedAgent, setSelectedAgent] = useState<string>('all');
   const [chatLogs, setChatLogs] = useState<ChatLog[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'all' | ProcessingStatus>('all');
+  const [selectedAgent, setSelectedAgent] = useState('all');
+  const [selectedChat, setSelectedChat] = useState<ChatLog | null>(null);
+  const [showViewModal, setShowViewModal] = useState(false);
 
   // Check if user is a demo user
   const isDemoUser = localStorage.getItem('token') === 'demo-token';
@@ -40,18 +42,21 @@ const ChatsPage: React.FC = () => {
 
   // Filter chat logs based on user role and search criteria
   const filteredChats = chatLogs.filter(chat => {
-    // Filter by user role (agents only see their own chats)
-    if (user?.role === 'agent' && chat.agentId !== user.id) {
-      return false;
+    // For agents, they should only see their own chats (already filtered by backend)
+    // For managers, they can see all chats but can filter by agent
+    if (user?.role === 'manager' && selectedAgent !== 'all') {
+      // Manager filtering by specific agent
+      if (chat.agent_id !== selectedAgent) {
+        return false;
+      }
     }
 
     const matchesSearch = chat.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         chat.interactionId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (chat.agentId && chat.agentId.toLowerCase().includes(searchTerm.toLowerCase()));
+                         chat.interaction_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (chat.agent_id && chat.agent_id.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesStatus = filterStatus === 'all' || chat.status === filterStatus;
-    const matchesAgent = selectedAgent === 'all' || chat.agentId === selectedAgent;
     
-    return matchesSearch && matchesStatus && matchesAgent;
+    return matchesSearch && matchesStatus;
   });
 
   const handleUploadSuccess = (chatLog: ChatLog) => {
@@ -60,8 +65,23 @@ const ChatsPage: React.FC = () => {
   };
 
   const handleProcessingComplete = (chatLogId: string) => {
-    // Refresh the chat logs to get updated status
+    // Refresh the chat logs list
     loadChatLogs();
+  };
+
+  const handleDeleteChat = async (chatLogId: string) => {
+    if (!confirm('Are you sure you want to delete this chat log? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      await api.chatLogs.delete(chatLogId);
+      // Refresh the chat logs list
+      loadChatLogs();
+    } catch (error) {
+      console.error('Error deleting chat log:', error);
+      setError('Failed to delete chat log');
+    }
   };
 
   const getStatusColor = (status: ProcessingStatus) => {
@@ -126,8 +146,29 @@ const ChatsPage: React.FC = () => {
             </div>
           )}
 
-          {/* Filters */}
+          {/* Filters and Refresh */}
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white">Filters</h3>
+              <button
+                onClick={loadChatLogs}
+                disabled={loading}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {loading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Loading...
+                  </>
+                ) : (
+                  <>
+                    <Database className="w-4 h-4" />
+                    Refresh
+                  </>
+                )}
+              </button>
+            </div>
+            
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -192,14 +233,6 @@ const ChatsPage: React.FC = () => {
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                   Chat Logs ({filteredChats.length})
                 </h2>
-                <button 
-                  onClick={loadChatLogs}
-                  disabled={loading}
-                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
-                >
-                  <Database className="w-4 h-4" />
-                  <span>{loading ? 'Loading...' : 'Refresh'}</span>
-                </button>
               </div>
             </div>
             
@@ -240,15 +273,23 @@ const ChatsPage: React.FC = () => {
                     filteredChats.map((chat) => (
                       <tr key={chat.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                          {chat.interactionId}
+                          {chat.interaction_id}
                         </td>
                         {user?.role === 'manager' && (
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                            {chat.agentId || 'N/A'}
+                            {chat.agent_id || 'N/A'}
                           </td>
                         )}
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                          {new Date(chat.createdAt || '').toLocaleDateString()}
+                          {(() => {
+                            try {
+                              if (!chat.created_at) return 'N/A';
+                              const date = new Date(chat.created_at);
+                              return isNaN(date.getTime()) ? 'N/A' : date.toLocaleDateString();
+                            } catch {
+                              return 'N/A';
+                            }
+                          })()}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(chat.status)}`}>
@@ -260,10 +301,13 @@ const ChatsPage: React.FC = () => {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                           <div className="flex space-x-2">
-                            <button className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300">
+                            <button className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300" onClick={() => {
+                              setSelectedChat(chat);
+                              setShowViewModal(true);
+                            }}>
                               <Eye className="w-4 h-4" />
                             </button>
-                            <button className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300">
+                            <button className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300" onClick={() => handleDeleteChat(chat.id)}>
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
@@ -284,87 +328,94 @@ const ChatsPage: React.FC = () => {
             onUploadSuccess={handleUploadSuccess}
             onProcessingComplete={handleProcessingComplete}
           />
-          
-          {/* JSON Structure Guide */}
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6">
-            <div className="flex items-center mb-4">
-              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-800 rounded-full flex items-center justify-center mr-3">
-                <span className="text-blue-600 dark:text-blue-400 text-sm font-bold">?</span>
+        </div>
+      )}
+
+      {/* View Modal */}
+      {selectedChat && showViewModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                Chat Log Details
+              </h2>
+              <button 
+                onClick={() => setShowViewModal(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+              {/* Chat Info */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 dark:text-gray-400">Interaction ID</label>
+                  <p className="text-sm text-gray-900 dark:text-white font-mono">{selectedChat.interaction_id}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 dark:text-gray-400">Agent ID</label>
+                  <p className="text-sm text-gray-900 dark:text-white">{selectedChat.agent_id || 'N/A'}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 dark:text-gray-400">Status</label>
+                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(selectedChat.status)}`}>
+                    {selectedChat.status.charAt(0).toUpperCase() + selectedChat.status.slice(1)}
+                  </span>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 dark:text-gray-400">Date</label>
+                  <p className="text-sm text-gray-900 dark:text-white">
+                    {(() => {
+                      try {
+                        if (!selectedChat.created_at) return 'N/A';
+                        const date = new Date(selectedChat.created_at);
+                        return isNaN(date.getTime()) ? 'N/A' : date.toLocaleDateString();
+                      } catch {
+                        return 'N/A';
+                      }
+                    })()}
+                  </p>
+                </div>
               </div>
-              <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100">
-                Chat Log JSON Format Guide
-              </h3>
-            </div>
-            
-            <p className="text-blue-800 dark:text-blue-200 mb-4">
-              Your JSON file should follow this exact structure. All fields are required unless marked as optional.
-            </p>
-            
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-blue-200 dark:border-blue-700">
-              <pre className="text-sm text-gray-800 dark:text-gray-200 overflow-x-auto">
-{`{
-  "interactionId": "chat_12345",
-  "agentId": "agent_001",
-  "customerId": "customer_456",
-  "startTime": "2024-01-15T10:30:00Z",
-  "endTime": "2024-01-15T10:45:00Z",
-  "transcript": [
-    {
-      "timestamp": "2024-01-15T10:30:15Z",
-      "sender": "customer",
-      "message": "Hello, I need help with my order",
-      "messageType": "text"
-    },
-    {
-      "timestamp": "2024-01-15T10:30:20Z", 
-      "sender": "agent",
-      "message": "Hi! I'd be happy to help. Can you provide your order number?",
-      "messageType": "text"
-    },
-    {
-      "timestamp": "2024-01-15T10:30:25Z",
-      "sender": "customer", 
-      "message": "Yes, it's #ORD-789456",
-      "messageType": "text"
-    }
-  ],
-  "metadata": {
-    "channel": "web_chat",
-    "language": "en",
-    "category": "order_inquiry"
-  }
-}`}
-              </pre>
-            </div>
-            
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+
+              {/* Transcript */}
               <div>
-                <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">Required Fields:</h4>
-                <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1">
-                  <li>• <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">interactionId</code> - Unique chat identifier</li>
-                  <li>• <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">agentId</code> - Agent who handled the chat</li>
-                  <li>• <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">customerId</code> - Customer identifier</li>
-                  <li>• <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">startTime</code> - Chat start timestamp (ISO 8601)</li>
-                  <li>• <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">endTime</code> - Chat end timestamp (ISO 8601)</li>
-                  <li>• <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">transcript</code> - Array of message objects</li>
-                </ul>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Chat Transcript</h3>
+                <div className="space-y-3">
+                  {selectedChat.transcript.map((message, index) => (
+                    <div 
+                      key={index} 
+                      className={`p-3 rounded-lg ${
+                        message.sender === 'customer' 
+                          ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500' 
+                          : 'bg-gray-50 dark:bg-gray-700 border-l-4 border-gray-500'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center mb-1">
+                            <span className={`text-xs font-medium px-2 py-1 rounded ${
+                              message.sender === 'customer'
+                                ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200'
+                                : 'bg-gray-100 text-gray-800 dark:bg-gray-600 dark:text-gray-200'
+                            }`}>
+                              {message.sender.charAt(0).toUpperCase() + message.sender.slice(1)}
+                            </span>
+                            {message.timestamp && (
+                              <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
+                                {new Date(message.timestamp).toLocaleString()}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-900 dark:text-white">{message.text}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              
-              <div>
-                <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">Message Object Fields:</h4>
-                <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1">
-                  <li>• <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">timestamp</code> - Message time (ISO 8601)</li>
-                  <li>• <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">sender</code> - "customer" or "agent"</li>
-                  <li>• <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">message</code> - Message content</li>
-                  <li>• <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">messageType</code> - "text", "image", etc.</li>
-                </ul>
-              </div>
-            </div>
-            
-            <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-              <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                <strong>Tip:</strong> You can also upload multiple chat logs in a single JSON array: <code className="bg-yellow-100 dark:bg-yellow-800 px-1 rounded">[&#123;chat1&#125;, &#123;chat2&#125;, ...]</code>
-              </p>
             </div>
           </div>
         </div>

@@ -1,203 +1,260 @@
 import logging
 import json
+import re
 from typing import Dict, Any, List, Optional
-from .model_loader import model_loader
+from .ollama_service import ollama_service
 
 logger = logging.getLogger(__name__)
 
 class EvaluationAgent:
     """
-    Agent responsible for evaluating chat logs and generating evaluation metrics.
+    Evaluation agent that generates four specific metrics with reasoning.
     """
     
     def __init__(self):
-        self.agent_type = "evaluation"
-        self.guidelines = [
-            "Acknowledge and Empathize",
-            "Set Clear Expectations", 
-            "Proactive Help"
-        ]
+        self.name = "evaluation_agent"
     
-    async def process_chat_log(self, transcript: List[Dict[str, str]]) -> Dict[str, Any]:
+    async def evaluate_chat(self, transcript: List[Dict[str, str]], model_name: str = None) -> Dict[str, Any]:
         """
-        Process a chat log and return evaluation results.
+        Evaluate a chat conversation using the evaluation agent.
         
         Args:
             transcript: List of messages with 'sender' and 'text' keys
+            model_name: Name of the model to use (optional, will use default if not provided)
             
         Returns:
-            Dictionary containing evaluation results
+            Dictionary containing evaluation results or error message
         """
         try:
-            logger.info("Starting evaluation agent processing")
+            logger.info("Starting chat evaluation...")
             
-            # Ensure base model is loaded
-            if model_loader.base_model is None:
-                success = model_loader.load_base_model()
-                if not success:
-                    logger.error("Failed to load base model")
-                    return self._create_error_response("Failed to load base model")
+            # Use provided model or get default model
+            if not model_name:
+                model_name = ollama_service.get_default_model()
             
-            # Prepare transcript for model input
+            logger.info(f"Using model: {model_name}")
+            
+            # Format transcript for evaluation
             formatted_transcript = self._format_transcript(transcript)
             
-            # Generate evaluation using the model
-            evaluation_result = await self._generate_evaluation(formatted_transcript)
+            # Create evaluation prompt
+            evaluation_prompt = self._create_evaluation_prompt(formatted_transcript)
             
-            # Parse the model output
-            parsed_result = self._parse_evaluation_output(evaluation_result)
+            logger.info("Generating evaluation response...")
             
-            logger.info("Evaluation agent processing completed")
+            # Generate evaluation using Ollama
+            response = ollama_service.generate_evaluation(model_name, evaluation_prompt)
+            
+            if response.startswith("Error"):
+                return {
+                    "error_message": response,
+                    "result": None
+                }
+            
+            # Parse the response to extract metrics
+            try:
+                # Clean the response to extract JSON
+                cleaned_response = response.strip()
+                
+                # Remove think tags if present
+                if "<think>" in cleaned_response:
+                    # Extract text after </think>
+                    parts = cleaned_response.split("</think>")
+                    if len(parts) > 1:
+                        cleaned_response = parts[1].strip()
+                    else:
+                        # If no closing tag, remove everything before the first actual response
+                        cleaned_response = cleaned_response.replace("<think>", "").strip()
+                
+                # Try to find JSON in the response
+                json_start = cleaned_response.find('{')
+                json_end = cleaned_response.rfind('}') + 1
+                
+                if json_start != -1 and json_end > json_start:
+                    json_str = cleaned_response[json_start:json_end]
+                    parsed_result = json.loads(json_str)
+                else:
+                    # If no JSON found, try to parse the entire response
+                    parsed_result = json.loads(cleaned_response)
+                
+                # Validate the structure
+                required_fields = ["coherence", "relevance", "politeness", "resolution"]
+                for field in required_fields:
+                    if field not in parsed_result:
+                        raise ValueError(f"Missing required field: {field}")
+                    
+                    if not isinstance(parsed_result[field], dict):
+                        raise ValueError(f"Field {field} must be an object")
+                    
+                    if "score" not in parsed_result[field] or "reasoning" not in parsed_result[field]:
+                        raise ValueError(f"Field {field} must have 'score' and 'reasoning' properties")
+                
+                # Validate score ranges
+                for field in ["coherence", "relevance", "politeness"]:
+                    score = parsed_result[field]["score"]
+                    if not isinstance(score, (int, float)) or score < 1 or score > 5:
+                        raise ValueError(f"{field} score must be between 1 and 5, got {score}")
+                
+                # Validate resolution score (should be 0 or 1)
+                resolution_score = parsed_result["resolution"]["score"]
+                if not isinstance(resolution_score, (int, float)) or resolution_score not in [0, 1]:
+                    raise ValueError(f"Resolution score must be 0 or 1, got {resolution_score}")
+                
+                logger.info(f"Successfully parsed evaluation response with scores: coherence={parsed_result['coherence']['score']}, relevance={parsed_result['relevance']['score']}, politeness={parsed_result['politeness']['score']}, resolution={parsed_result['resolution']['score']}")
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON response: {e}")
+                logger.error(f"Raw response: {response}")
+                logger.error(f"Cleaned response: {cleaned_response}")
+                return {
+                    "error_message": f"Failed to parse evaluation response as JSON: {str(e)}",
+                    "result": None
+                }
+            except ValueError as e:
+                logger.error(f"Invalid evaluation response structure: {e}")
+                logger.error(f"Raw response: {response}")
+                return {
+                    "error_message": f"Invalid evaluation response structure: {str(e)}",
+                    "result": None
+                }
+            
+            # Generate evaluation summary
+            evaluation_summary = self._generate_evaluation_summary(parsed_result, formatted_transcript, model_name)
+            
             return {
-                "status": "completed",
-                "agent_type": self.agent_type,
-                "result": parsed_result
+                "result": {
+                    **parsed_result,
+                    "evaluation_summary": evaluation_summary,
+                    "model_used": model_name,
+                    "agent": self.name
+                }
             }
             
         except Exception as e:
             logger.error(f"Error in evaluation agent: {e}")
             return {
-                "status": "failed",
-                "agent_type": self.agent_type,
-                "error_message": str(e)
+                "error_message": str(e),
+                "result": None
             }
+        finally:
+            # Automatically unload the model after evaluation
+            try:
+                logger.info(f"Auto-unloading model {model_name} after evaluation completion")
+                ollama_service.unload_model()
+            except Exception as e:
+                logger.warning(f"Failed to auto-unload model after evaluation: {e}")
+    
+    def _create_evaluation_prompt(self, transcript_text: str) -> str:
+        """Create a comprehensive evaluation prompt."""
+        return f"""
+        You are an expert customer service evaluator. Analyze the following customer service conversation and provide a detailed evaluation with specific metrics.
+
+        CONVERSATION:
+        {transcript_text}
+
+        EVALUATION REQUIREMENTS:
+        Please evaluate this conversation and provide your response in the following JSON format:
+
+        {{
+          "coherence": {{
+            "score": <score from 1-5>,
+            "reasoning": "<detailed explanation of the coherence score>"
+          }},
+          "relevance": {{
+            "score": <score from 1-5>,
+            "reasoning": "<detailed explanation of the relevance score>"
+          }},
+          "politeness": {{
+            "score": <score from 1-5>,
+            "reasoning": "<detailed explanation of the politeness score>"
+          }},
+          "resolution": {{
+            "score": <0 for unresolved, 1 for resolved>,
+            "reasoning": "<detailed explanation of the resolution status>"
+          }}
+        }}
+
+        EVALUATION CRITERIA:
+        - **Coherence (1-5)**: How well the conversation flows logically and maintains context
+        - **Relevance (1-5)**: How directly the responses address the customer's issues
+        - **Politeness (1-5)**: How courteous, respectful, and professional the communication is
+        - **Resolution (0 or 1)**: 
+          - 0 = Issue was NOT resolved (customer's problem remains unsolved)
+          - 1 = Issue WAS resolved (customer's problem was successfully addressed)
+
+        CRITICAL: Respond ONLY with valid JSON. Do not include any thinking process, explanations, or additional text before or after the JSON object. Do not use <think> tags or any other formatting.
+        """
+    
+    def _generate_evaluation_summary(self, parsed_result: Dict[str, Any], transcript_text: str, model_name: str) -> str:
+        """Generate a comprehensive evaluation summary."""
+        try:
+            summary_prompt = f"""
+Based on the following evaluation results, generate a comprehensive evaluation summary that combines all metrics and their reasoning:
+
+EVALUATION RESULTS:
+{json.dumps(parsed_result, indent=2)}
+
+CONVERSATION CONTEXT:
+{transcript_text[:500]}...
+
+Please provide a comprehensive evaluation summary that:
+1. Synthesizes all four metrics (coherence, relevance, politeness, resolution)
+2. Highlights key strengths and areas for improvement
+3. Provides actionable insights for the agent
+4. Maintains a professional and constructive tone
+5. Is 2-3 paragraphs long
+
+Focus on creating a summary that would be useful for training and improvement purposes.
+"""
+            
+            # Generate summary using Ollama
+            summary_response = ollama_service.generate_evaluation(model_name, summary_prompt)
+            
+            if summary_response.startswith("Error"):
+                # Fallback to manual summary generation
+                return self._generate_fallback_summary(parsed_result)
+            
+            return summary_response.strip()
+            
+        except Exception as e:
+            logger.error(f"Error generating evaluation summary: {e}")
+            return self._generate_fallback_summary(parsed_result)
+    
+    def _generate_fallback_summary(self, parsed_result: Dict[str, Any]) -> str:
+        """Generate a fallback summary if AI generation fails."""
+        coherence = parsed_result.get("coherence", {"score": 3, "reasoning": "Unable to determine"})
+        relevance = parsed_result.get("relevance", {"score": 3, "reasoning": "Unable to determine"})
+        politeness = parsed_result.get("politeness", {"score": 3, "reasoning": "Unable to determine"})
+        resolution = parsed_result.get("resolution", {"score": 0, "reasoning": "Unable to determine"})
+        
+        # Calculate overall score
+        overall_score = (coherence["score"] + relevance["score"] + politeness["score"] + resolution["score"]) / 4
+        
+        summary = f"""
+Overall Evaluation Summary:
+
+This customer service interaction received an overall score of {overall_score:.1f}/5. The conversation demonstrated {coherence['score']}/5 coherence, {relevance['score']}/5 relevance, and {politeness['score']}/5 politeness. The issue was {'resolved' if resolution['score'] == 1 else 'not resolved'}.
+
+Key observations include: {coherence['reasoning'][:100]}... For relevance, {relevance['reasoning'][:100]}... Regarding politeness, {politeness['reasoning'][:100]}... The resolution status indicates {resolution['reasoning'][:100]}...
+
+Recommendations for improvement focus on addressing the specific areas identified in each metric's reasoning, with particular attention to maintaining professional communication standards and ensuring customer satisfaction.
+"""
+        
+        return summary.strip()
     
     def _format_transcript(self, transcript: List[Dict[str, str]]) -> str:
-        """
-        Format transcript for model input.
-        """
-        formatted = "Chat Transcript:\n\n"
+        """Format transcript for evaluation."""
+        formatted = []
         for i, message in enumerate(transcript, 1):
-            sender = message.get('sender', 'unknown')
-            text = message.get('text', '')
-            formatted += f"{i}. {sender.capitalize()}: {text}\n\n"
-        
-        return formatted
-    
-    async def _generate_evaluation(self, formatted_transcript: str) -> str:
-        """
-        Generate evaluation using the loaded model.
-        """
-        try:
-            # Create prompt for evaluation
-            prompt = f"""
-            Please evaluate the following customer service chat transcript and provide:
-            1. Coherence score (0-5): How well the conversation flows
-            2. Relevance score (0-5): How relevant the responses are to customer needs
-            3. Politeness score (0-5): How polite and professional the agent is
-            4. Resolution score (0-1): Whether the customer's issue was resolved
-            5. Reasoning for each score
-            6. Overall evaluation summary
-
-            {formatted_transcript}
-
-            Please respond in the following JSON format:
-            {{
-                "coherence": 4.2,
-                "relevance": 3.8,
-                "politeness": 4.5,
-                "resolution": 0.8,
-                "reasoning": {{
-                    "coherence": "The conversation flows well with logical progression...",
-                    "relevance": "The agent addresses the customer's concerns...",
-                    "politeness": "The agent maintains a professional and courteous tone...",
-                    "resolution": "The customer's issue appears to be resolved..."
-                }},
-                "evaluation_summary": "Overall, this was a good customer service interaction..."
-            }}
-            """
+            sender = message.get("sender", "Unknown")
+            text = message.get("text", "")
+            timestamp = message.get("timestamp", "")
             
-            # Generate response using the current model_loader API
-            response = model_loader.generate_response(prompt, self.agent_type, max_length=512)
-            
-            # Extract the JSON part from the response
-            json_start = response.find('{')
-            json_end = response.rfind('}') + 1
-            if json_start != -1 and json_end != 0:
-                json_response = response[json_start:json_end]
-                return json_response
+            if timestamp:
+                formatted.append(f"Message {i} [{timestamp}] {sender}: {text}")
             else:
-                return response
-                
-        except Exception as e:
-            logger.error(f"Error generating evaluation: {e}")
-            raise e
-    
-    def _parse_evaluation_output(self, model_output: str) -> Dict[str, Any]:
-        """
-        Parse the model output into structured evaluation data.
-        """
-        try:
-            # Try to parse as JSON
-            if model_output.strip().startswith('{'):
-                parsed = json.loads(model_output)
-                
-                return {
-                    "coherence": parsed.get("coherence", 0.0),
-                    "relevance": parsed.get("relevance", 0.0),
-                    "politeness": parsed.get("politeness", 0.0),
-                    "resolution": parsed.get("resolution", 0.0),
-                    "reasoning": {
-                        "coherence": parsed.get("reasoning", {}).get("coherence", "N/A"),
-                        "relevance": parsed.get("reasoning", {}).get("relevance", "N/A"),
-                        "politeness": parsed.get("reasoning", {}).get("politeness", "N/A"),
-                        "resolution": parsed.get("reasoning", {}).get("resolution", "N/A")
-                    },
-                    "evaluation_summary": parsed.get("evaluation_summary", "N/A"),
-                    "error_message": None
-                }
-            else:
-                # Fallback if JSON parsing fails
-                return {
-                    "coherence": 0.0,
-                    "relevance": 0.0,
-                    "politeness": 0.0,
-                    "resolution": 0.0,
-                    "reasoning": {
-                        "coherence": "N/A",
-                        "relevance": "N/A", 
-                        "politeness": "N/A",
-                        "resolution": "N/A"
-                    },
-                    "evaluation_summary": "N/A",
-                    "error_message": "Failed to parse model output"
-                }
-                
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse evaluation output as JSON: {e}")
-            return {
-                "coherence": 0.0,
-                "relevance": 0.0,
-                "politeness": 0.0,
-                "resolution": 0.0,
-                "reasoning": {
-                    "coherence": "N/A",
-                    "relevance": "N/A",
-                    "politeness": "N/A", 
-                    "resolution": "N/A"
-                },
-                "evaluation_summary": "N/A",
-                "error_message": f"JSON parsing error: {str(e)}"
-            }
-    
-    def _create_error_response(self, error_message: str) -> Dict[str, Any]:
-        """
-        Create a standardized error response.
-        """
-        return {
-            "coherence": 0.0,
-            "relevance": 0.0,
-            "politeness": 0.0,
-            "resolution": 0.0,
-            "reasoning": {
-                "coherence": "N/A",
-                "relevance": "N/A",
-                "politeness": "N/A",
-                "resolution": "N/A"
-            },
-            "evaluation_summary": "N/A",
-            "error_message": error_message
-        }
+                formatted.append(f"Message {i} {sender}: {text}")
+        return "\n".join(formatted)
 
 # Global evaluation agent instance
 evaluation_agent = EvaluationAgent() 

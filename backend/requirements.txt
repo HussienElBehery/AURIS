@@ -10,6 +10,8 @@ pydantic==2.5.0
 pydantic-settings==2.1.0
 python-dotenv==1.0.0
 email-validator==2.1.0
+requests>=2.31.0
+psutil>=5.9.0
 
 # AI/ML dependencies for multi-agent system
 # unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git  # Commented out due to Python 3.13 compatibility

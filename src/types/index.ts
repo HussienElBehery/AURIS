@@ -3,6 +3,7 @@ export interface User {
   name: string;
   email: string;
   role: 'agent' | 'manager';
+  agentId?: string;
   avatar?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -10,19 +11,20 @@ export interface User {
 
 export interface ChatLog {
   id: string;
-  interactionId: string;
-  agentId?: string;
-  agentPersona?: string;
+  interaction_id: string;
+  agent_id?: string;
+  agent_persona?: string;
   transcript: TranscriptMessage[];
   status: ProcessingStatus;
-  uploadedBy: string;
-  createdAt?: string;
-  updatedAt?: string;
+  uploaded_by: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface TranscriptMessage {
   sender: string;
   text: string;
+  timestamp?: string;
 }
 
 export type ProcessingStatus = 'pending' | 'processing' | 'completed' | 'failed';
@@ -51,10 +53,10 @@ export interface Evaluation {
   politeness?: number;
   resolution?: number;
   reasoning?: {
-    coherence: string;
-    relevance: string;
-    politeness: string;
-    resolution: string;
+    coherence?: { score: number; reasoning: string };
+    relevance?: { score: number; reasoning: string };
+    politeness?: { score: number; reasoning: string };
+    resolution?: { score: number; reasoning: string };
   };
   evaluationSummary?: string;
   errorMessage?: string;

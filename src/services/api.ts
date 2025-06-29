@@ -120,41 +120,24 @@ export const api = {
   // Chat logs endpoints
   chatLogs: {
     getAll: async (): Promise<ChatLog[]> => {
-      // Return mock data for demo mode
-      if (isDemoMode()) {
-        return new Promise((resolve) => {
-          setTimeout(() => {
-            resolve([
-              {
-                id: '1',
-                interactionId: 'INT-001',
-                agentId: 'agent-1',
-                agentPersona: 'Customer Support Agent',
-                transcript: [
-                  { sender: 'customer', text: 'Hello, I need help with my order.' },
-                  { sender: 'agent', text: 'Hi! I\'d be happy to help you with your order.' }
-                ],
-                status: 'completed' as ProcessingStatus,
-                uploadedBy: '1',
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-              }
-            ]);
-          }, 500);
-        });
-      }
-
-      const response = await fetch(`${API_BASE_URL}/chat-logs`, {
+      const response = await fetch(`${API_BASE_URL}/chat-logs/`, {
         headers: getAuthHeaders(),
       });
       return handleResponse<ChatLog[]>(response);
     },
 
-    getById: async (id: string): Promise<ChatLog> => {
-      const response = await fetch(`${API_BASE_URL}/chat-logs/${id}`, {
+    getById: async (chatLogId: string): Promise<ChatLog> => {
+      const response = await fetch(`${API_BASE_URL}/chat-logs/${chatLogId}`, {
         headers: getAuthHeaders(),
       });
       return handleResponse<ChatLog>(response);
+    },
+
+    getEvaluation: async (chatLogId: string): Promise<Evaluation> => {
+      const response = await fetch(`${API_BASE_URL}/chat-logs/${chatLogId}/evaluation`, {
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<Evaluation>(response);
     },
 
     upload: async (file: File): Promise<ChatLog> => {
@@ -192,6 +175,26 @@ export const api = {
         progress: Record<string, string>;
         error_messages: Record<string, string>;
       }>(response);
+    },
+
+    assignAgent: async (chatLogId: string, agentId: string, agentPersona?: string): Promise<{ message: string }> => {
+      const response = await fetch(`${API_BASE_URL}/chat-logs/${chatLogId}/assign-agent`, {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ agent_id: agentId, agent_persona: agentPersona }),
+      });
+      return handleResponse<{ message: string }>(response);
+    },
+
+    delete: async (chatLogId: string): Promise<{ message: string }> => {
+      const response = await fetch(`${API_BASE_URL}/chat-logs/${chatLogId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<{ message: string }>(response);
     },
   },
 
@@ -250,14 +253,28 @@ export const api = {
       return handleResponse<any>(response);
     },
 
-    getProgress: async (): Promise<any> => {
-      const response = await fetch(`${API_BASE_URL}/models/progress`, {
+    getList: async (): Promise<any> => {
+      const response = await fetch(`${API_BASE_URL}/models/list`, {
         headers: getAuthHeaders(),
       });
       return handleResponse<any>(response);
     },
 
-    loadBaseModel: async (modelName: string): Promise<any> => {
+    getSystemInfo: async (): Promise<any> => {
+      const response = await fetch(`${API_BASE_URL}/models/system-info`, {
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<any>(response);
+    },
+
+    getAvailableModels: async (): Promise<any> => {
+      const response = await fetch(`${API_BASE_URL}/models/available`, {
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<any>(response);
+    },
+
+    loadModel: async (modelName: string): Promise<any> => {
       const response = await fetch(`${API_BASE_URL}/models/load`, {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
@@ -266,50 +283,55 @@ export const api = {
       return handleResponse<any>(response);
     },
 
-    testGeneration: async (adapterName?: string): Promise<any> => {
+    unloadModel: async (): Promise<any> => {
+      const response = await fetch(`${API_BASE_URL}/models/unload`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      });
+      return handleResponse<any>(response);
+    },
+
+    testGeneration: async (modelName: string, prompt?: string): Promise<any> => {
       const response = await fetch(`${API_BASE_URL}/models/test-generation`, {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adapter_name: adapterName }),
+        body: JSON.stringify({ 
+          model_name: modelName,
+          prompt: prompt || "Hello, how are you today?"
+        }),
       });
       return handleResponse<any>(response);
     },
 
-    installBase: async (): Promise<any> => {
-      const response = await fetch(`${API_BASE_URL}/models/install/base`, {
+    pullModel: async (modelName: string): Promise<any> => {
+      const response = await fetch(`${API_BASE_URL}/models/pull`, {
         method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model_name: modelName }),
+      });
+      return handleResponse<any>(response);
+    },
+
+    checkHealth: async (): Promise<any> => {
+      const response = await fetch(`${API_BASE_URL}/models/health`, {
         headers: getAuthHeaders(),
       });
       return handleResponse<any>(response);
     },
 
-    installAdapters: async (): Promise<any> => {
-      const response = await fetch(`${API_BASE_URL}/models/install/adapters`, {
+    stopModel: async (modelName: string): Promise<any> => {
+      const response = await fetch(`${API_BASE_URL}/models/stop`, {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model_name: modelName }),
       });
       return handleResponse<any>(response);
     },
 
-    installAll: async (): Promise<any> => {
-      const response = await fetch(`${API_BASE_URL}/models/install/all`, {
+    setDefaultModel: async (modelName: string): Promise<any> => {
+      const response = await fetch(`${API_BASE_URL}/models/set-default/${modelName}`, {
         method: 'POST',
-        headers: getAuthHeaders(),
-      });
-      return handleResponse<any>(response);
-    },
-
-    testLoading: async (): Promise<any> => {
-      const response = await fetch(`${API_BASE_URL}/models/test`, {
-        headers: getAuthHeaders(),
-      });
-      return handleResponse<any>(response);
-    },
-
-    cleanupCache: async (): Promise<any> => {
-      const response = await fetch(`${API_BASE_URL}/models/cache`, {
-        method: 'DELETE',
-        headers: getAuthHeaders(),
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
       });
       return handleResponse<any>(response);
     },

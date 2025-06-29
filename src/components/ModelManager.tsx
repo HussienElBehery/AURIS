@@ -1,102 +1,269 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { Cpu, Monitor, HardDrive, Server, Loader2, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 
-interface BaseModel {
+interface OllamaModel {
   name: string;
-  path: string;
-  type: string;
+  tag: string;
+  size: number;
+  modified_at: string;
+  digest: string;
+  details: any;
 }
 
-interface Adapter {
-  installed: boolean;
-  path: string;
-  base_model_name: string;
-  agent_type: string;
-  size_gb: number;
-  compatible: boolean;
+interface SystemInfo {
+  cpu: {
+    count: number;
+    percent: number;
+    frequency?: any;
+  };
+  memory: {
+    total: number;
+    available: number;
+    percent: number;
+    used: number;
+  };
+  gpu: {
+    available: boolean;
+    count: number;
+    gpus: Array<{
+      name: string;
+      memory_total: number;
+      memory_used: number;
+      memory_free: number;
+      utilization: number;
+    }>;
+  };
+  ollama_running: boolean;
 }
 
 interface ModelStatusResponse {
-  base_model_loaded: boolean;
-  current_base_model: string | null;
-  device: string;
-  available_base_models: BaseModel[];
-  adapters: Record<string, Adapter>;
+  available_models: OllamaModel[];
+  current_model: string | null;
+  default_model: string | null;
+  system_info: SystemInfo;
+  ollama_running: boolean;
+  total_models: number;
 }
 
 const ModelManager: React.FC = () => {
   const [modelStatus, setModelStatus] = useState<ModelStatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loadingModel, setLoadingModel] = useState(false);
+  const [loadingModel, setLoadingModel] = useState<string | null>(null);
+  const [systemInfoLoading, setSystemInfoLoading] = useState(true);
+  const [ollamaRunning, setOllamaRunning] = useState<boolean | null>(null);
+  const [testPrompt, setTestPrompt] = useState<string>("Hello, how are you today?");
+  const [showTestModal, setShowTestModal] = useState<boolean>(false);
+  const [testingModel, setTestingModel] = useState<string | null>(null);
+  const [testResponse, setTestResponse] = useState<string>("");
+  const [testLoading, setTestLoading] = useState<boolean>(false);
+  const [settingDefault, setSettingDefault] = useState<string | null>(null);
 
-  const fetchModelStatus = async () => {
-    try {
-      setLoading(true);
-      const response = await api.models.getStatus();
-      if (response.success) {
-        setModelStatus(response.data);
-      }
-    } catch (err) {
-      setError('Failed to fetch model status');
-      console.error('Error fetching model status:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Load models immediately on component mount
   useEffect(() => {
-    fetchModelStatus();
+    fetchModelList();
   }, []);
 
-  const loadBaseModel = async (modelName: string) => {
+  // Load system info separately and update every minute
+  useEffect(() => {
+    fetchSystemInfo();
+    const interval = setInterval(fetchSystemInfo, 60000); // Update every minute
+    return () => clearInterval(interval);
+  }, []);
+
+  const fetchModelList = async () => {
     try {
-      setLoadingModel(true);
       setError(null);
-      const response = await api.models.loadBaseModel(modelName);
+      const response = await api.models.getList();
       if (response.success) {
-        await fetchModelStatus();
-        alert(`Base model ${modelName} loaded successfully!`);
+        setModelStatus(prev => ({
+          available_models: response.data.models,
+          current_model: response.data.current_model,
+          default_model: response.data.default_model,
+          total_models: response.data.total_models,
+          ollama_running: true,
+          system_info: prev?.system_info || {
+            cpu: { count: 0, percent: 0 },
+            memory: { total: 0, available: 0, percent: 0, used: 0 },
+            gpu: { available: false, count: 0, gpus: [] },
+            ollama_running: true
+          }
+        }));
+        setOllamaRunning(true);
       } else {
-        setError(`Failed to load base model: ${response.message}`);
+        setError('Failed to fetch model list');
+        setOllamaRunning(false);
       }
     } catch (err) {
-      setError('Failed to load base model');
-      console.error('Error loading base model:', err);
-    } finally {
-      setLoadingModel(false);
+      setError('Failed to fetch model list');
+      console.error('Error fetching model list:', err);
+      setOllamaRunning(false);
     }
   };
 
-  const testModelGeneration = async (adapterName?: string) => {
+  const fetchSystemInfo = async () => {
     try {
-      setLoading(true);
-      const response = await api.models.testGeneration(adapterName);
+      setSystemInfoLoading(true);
+      const response = await api.models.getSystemInfo();
       if (response.success) {
-        alert(`Model generation test completed successfully!\nResponse: ${response.data.response}`);
+        setModelStatus(prev => prev ? {
+          ...prev,
+          system_info: response.data,
+          ollama_running: response.data.ollama_running
+        } : null);
+        setOllamaRunning(response.data.ollama_running);
+      }
+    } catch (err) {
+      console.error('Error fetching system info:', err);
+    } finally {
+      setSystemInfoLoading(false);
+    }
+  };
+
+  const loadModel = async (modelName: string) => {
+    try {
+      setLoadingModel(modelName);
+      setError(null);
+      const response = await api.models.loadModel(modelName);
+      if (response.success) {
+        await fetchModelList(); // Refresh model list to update current model
+        alert(`Model ${modelName} loaded successfully!`);
       } else {
-        alert(`Model generation test failed: ${response.message}`);
+        setError(`Failed to load model: ${response.message}`);
+      }
+    } catch (err) {
+      setError('Failed to load model');
+      console.error('Error loading model:', err);
+    } finally {
+      setLoadingModel(null);
+    }
+  };
+
+  const unloadModel = async () => {
+    try {
+      setLoadingModel("unloading");
+      setError(null);
+      const response = await api.models.unloadModel();
+      if (response.success) {
+        await fetchModelList(); // Refresh model list to update current model
+        alert("Model unloaded successfully! Memory freed.");
+      } else {
+        setError(`Failed to unload model: ${response.message}`);
+      }
+    } catch (err) {
+      setError('Failed to unload model');
+      console.error('Error unloading model:', err);
+    } finally {
+      setLoadingModel(null);
+    }
+  };
+
+  const testModelGeneration = async (modelName: string, customPrompt?: string) => {
+    try {
+      setTestLoading(true);
+      setTestResponse("");
+      const prompt = customPrompt || testPrompt;
+      
+      // First load the model if it's not already loaded
+      if (modelStatus?.current_model !== modelName) {
+        console.log(`Loading model ${modelName} for testing...`);
+        const loadResponse = await api.models.loadModel(modelName);
+        if (!loadResponse.success) {
+          setError(`Failed to load model for testing: ${loadResponse.message}`);
+          return;
+        }
+        // Refresh model list to update current model
+        await fetchModelList();
+      }
+      
+      // Now test the generation
+      const response = await api.models.testGeneration(modelName, prompt);
+      if (response.success) {
+        setTestResponse(response.data.response);
+      } else {
+        setError(`Model generation test failed: ${response.message}`);
       }
     } catch (err) {
       setError('Failed to test model generation');
       console.error('Error testing model generation:', err);
     } finally {
-      setLoading(false);
+      setTestLoading(false);
     }
   };
 
-  if (loading && !modelStatus) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600 dark:border-blue-400"></div>
-      </div>
-    );
-  }
+  const openTestModal = (modelName: string) => {
+    setTestingModel(modelName);
+    setShowTestModal(true);
+    setTestResponse("");
+  };
+
+  const closeTestModal = async () => {
+    setShowTestModal(false);
+    
+    // Automatically unload the model when closing the test modal
+    if (testingModel && modelStatus?.current_model === testingModel) {
+      try {
+        console.log(`Auto-unloading model ${testingModel} after test completion`);
+        await api.models.unloadModel();
+        await fetchModelList(); // Refresh model list
+      } catch (err) {
+        console.error('Error auto-unloading model:', err);
+        // Don't show error to user as this is automatic
+      }
+    }
+    
+    setTestingModel(null);
+    setTestResponse("");
+  };
+
+  const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const formatMemory = (bytes: number): string => {
+    return formatBytes(bytes);
+  };
+
+  const getStatusIcon = (ollamaRunning: boolean) => {
+    if (ollamaRunning) {
+      return <CheckCircle className="w-5 h-5 text-green-500" />;
+    } else {
+      return <XCircle className="w-5 h-5 text-red-500" />;
+    }
+  };
+
+  const runModel = async (modelName: string) => {
+    await loadModel(modelName);
+  };
+
+  const setDefaultModel = async (modelName: string) => {
+    try {
+      setSettingDefault(modelName);
+      setError(null);
+      const response = await api.models.setDefaultModel(modelName);
+      if (response.success) {
+        await fetchModelList();
+        alert(`Model ${modelName} set as default successfully!`);
+      } else {
+        setError(`Failed to set default model: ${response.message}`);
+      }
+    } catch (err) {
+      setError('Failed to set default model');
+      console.error('Error setting default model:', err);
+    } finally {
+      setSettingDefault(null);
+    }
+  };
 
   return (
-    <div className="max-w-6xl mx-auto p-6 bg-gray-50 dark:bg-gray-900 min-h-screen">
+    <div className="max-w-7xl mx-auto p-6 bg-gray-50 dark:bg-gray-900 min-h-screen">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-6">Model Management</h1>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-6">Ollama Model Management</h1>
         
         {error && (
           <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-4">
@@ -105,165 +272,323 @@ const ModelManager: React.FC = () => {
         )}
 
         {/* System Status */}
-        {modelStatus && (
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200">System Status</h2>
-              <button
-                onClick={fetchModelStatus}
-                disabled={loading}
-                className="px-4 py-2 bg-blue-600 dark:bg-blue-500 text-white rounded hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50"
-              >
-                {loading ? 'Refreshing...' : 'Refresh'}
-              </button>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-              <div className="bg-blue-50 dark:bg-blue-900 p-4 rounded-lg">
-                <div className="text-2xl font-bold text-blue-600 dark:text-blue-300">
-                  {modelStatus.available_base_models.length}
-                </div>
-                <div className="text-sm text-gray-600 dark:text-gray-300">Available Base Models</div>
-              </div>
-              <div className="bg-green-50 dark:bg-green-900 p-4 rounded-lg">
-                <div className="text-2xl font-bold text-green-600 dark:text-green-300">
-                  {Object.values(modelStatus.adapters).filter(a => a.installed).length}
-                </div>
-                <div className="text-sm text-gray-600 dark:text-gray-300">Installed Adapters</div>
-              </div>
-              <div className={`p-4 rounded-lg ${modelStatus.base_model_loaded ? 'bg-green-50 dark:bg-green-900' : 'bg-yellow-50 dark:bg-yellow-900'}`}> 
-                <div className={`text-2xl font-bold ${modelStatus.base_model_loaded ? 'text-green-600 dark:text-green-300' : 'text-yellow-600 dark:text-yellow-300'}`}> 
-                  {modelStatus.base_model_loaded ? 'Loaded' : 'Not Loaded'}
-                </div>
-                <div className="text-sm text-gray-600 dark:text-gray-300">Base Model</div>
-              </div>
-              <div className="bg-purple-50 dark:bg-purple-900 p-4 rounded-lg">
-                <div className="text-2xl font-bold text-purple-600 dark:text-purple-300">
-                  {modelStatus.device.toUpperCase()}
-                </div>
-                <div className="text-sm text-gray-600 dark:text-gray-300">Device</div>
-              </div>
-            </div>
-
-            {modelStatus.current_base_model && (
-              <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg mb-4">
-                <div className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Current Base Model</div>
-                <div className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                  {modelStatus.current_base_model}
-                </div>
-              </div>
-            )}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200">System Status</h2>
+            <button
+              onClick={fetchSystemInfo}
+              disabled={systemInfoLoading}
+              className="px-4 py-2 bg-blue-600 dark:bg-blue-500 text-white rounded hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 flex items-center gap-2"
+            >
+              {systemInfoLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                'Update System Info'
+              )}
+            </button>
           </div>
-        )}
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            {/* Ollama Status */}
+            <div className="bg-blue-50 dark:bg-blue-900 p-4 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-300">
+                    {ollamaRunning === null ? 'Checking...' : (ollamaRunning ? 'Running' : 'Stopped')}
+                  </div>
+                  <div className="text-sm text-gray-600 dark:text-gray-300">Ollama Service</div>
+                </div>
+                {ollamaRunning !== null && getStatusIcon(ollamaRunning)}
+              </div>
+            </div>
 
-        {/* Base Models Section */}
-        {modelStatus && (
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4">Available Base Models</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {modelStatus.available_base_models.map((model, index) => (
-                <div key={index} className="border dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-900">
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <h3 className="font-semibold text-gray-800 dark:text-gray-100">{model.name}</h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-300">{model.type}</p>
-                    </div>
-                    <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-200">
-                      {model.type}
+            {/* Available Models */}
+            <div className="bg-green-50 dark:bg-green-900 p-4 rounded-lg">
+              <div className="text-2xl font-bold text-green-600 dark:text-green-300">
+                {modelStatus?.total_models || 0}
+              </div>
+              <div className="text-sm text-gray-600 dark:text-gray-300">Available Models</div>
+            </div>
+
+            {/* CPU Usage */}
+            <div className="bg-purple-50 dark:bg-purple-900 p-4 rounded-lg">
+              <div className="text-2xl font-bold text-purple-600 dark:text-purple-300">
+                {systemInfoLoading ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    ...
+                  </div>
+                ) : (
+                  `${modelStatus?.system_info.cpu.percent.toFixed(1) || 0}%`
+                )}
+              </div>
+              <div className="text-sm text-gray-600 dark:text-gray-300">CPU Usage</div>
+            </div>
+
+            {/* Memory Usage */}
+            <div className="bg-orange-50 dark:bg-orange-900 p-4 rounded-lg">
+              <div className="text-2xl font-bold text-orange-600 dark:text-orange-300">
+                {systemInfoLoading ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    ...
+                  </div>
+                ) : (
+                  `${modelStatus?.system_info.memory.percent.toFixed(1) || 0}%`
+                )}
+              </div>
+              <div className="text-sm text-gray-600 dark:text-gray-300">Memory Usage</div>
+            </div>
+          </div>
+
+          {/* Detailed System Info */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* CPU Info */}
+            <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+              <div className="flex items-center gap-2 mb-3">
+                <Cpu className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                <h3 className="font-semibold text-gray-800 dark:text-gray-200">CPU Information</h3>
+                {systemInfoLoading && <Loader2 className="w-4 h-4 animate-spin text-blue-600" />}
+              </div>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600 dark:text-gray-300">Cores:</span>
+                  <span className="text-gray-800 dark:text-gray-200">
+                    {systemInfoLoading ? '...' : (modelStatus?.system_info.cpu.count || 0)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600 dark:text-gray-300">Usage:</span>
+                  <span className="text-gray-800 dark:text-gray-200">
+                    {systemInfoLoading ? '...' : `${(modelStatus?.system_info.cpu.percent || 0).toFixed(1)}%`}
+                  </span>
+                </div>
+                {modelStatus?.system_info.cpu.frequency && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-300">Frequency:</span>
+                    <span className="text-gray-800 dark:text-gray-200">
+                      {systemInfoLoading ? '...' : `${(modelStatus.system_info.cpu.frequency.current / 1000).toFixed(1)} GHz`}
                     </span>
                   </div>
+                )}
+              </div>
+            </div>
+
+            {/* Memory Info */}
+            <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+              <div className="flex items-center gap-2 mb-3">
+                <HardDrive className="w-5 h-5 text-green-600 dark:text-green-400" />
+                <h3 className="font-semibold text-gray-800 dark:text-gray-200">Memory Information</h3>
+                {systemInfoLoading && <Loader2 className="w-4 h-4 animate-spin text-green-600" />}
+              </div>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600 dark:text-gray-300">Total:</span>
+                  <span className="text-gray-800 dark:text-gray-200">
+                    {systemInfoLoading ? '...' : formatMemory(modelStatus?.system_info.memory.total || 0)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600 dark:text-gray-300">Used:</span>
+                  <span className="text-gray-800 dark:text-gray-200">
+                    {systemInfoLoading ? '...' : formatMemory(modelStatus?.system_info.memory.used || 0)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600 dark:text-gray-300">Available:</span>
+                  <span className="text-gray-800 dark:text-gray-200">
+                    {systemInfoLoading ? '...' : formatMemory(modelStatus?.system_info.memory.available || 0)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600 dark:text-gray-300">Usage:</span>
+                  <span className="text-gray-800 dark:text-gray-200">
+                    {systemInfoLoading ? '...' : `${(modelStatus?.system_info.memory.percent || 0).toFixed(1)}%`}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Models Section */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200">Available Models</h2>
+            {modelStatus?.current_model && (
+              <button
+                onClick={unloadModel}
+                disabled={loadingModel === "unloading"}
+                className="px-4 py-2 bg-red-600 dark:bg-red-500 text-white rounded hover:bg-red-700 dark:hover:bg-red-600 disabled:opacity-50 flex items-center gap-2"
+              >
+                {loadingModel === "unloading" ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Unloading...
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="w-4 h-4" />
+                    Unload Current Model
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+          
+          {ollamaRunning === false ? (
+            <div className="text-center py-8">
+              <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-600 dark:text-gray-300">
+                Ollama is not running. Please start Ollama to see available models.
+              </p>
+            </div>
+          ) : modelStatus?.available_models && modelStatus.available_models.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {modelStatus.available_models.map((model) => (
+                <div key={model.name} className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg border border-gray-200 dark:border-gray-600">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-semibold text-gray-800 dark:text-gray-200">{model.name}</h3>
+                    <div className="flex gap-1">
+                      {modelStatus.current_model === model.name && (
+                        <span className="bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs px-2 py-1 rounded">
+                          Active
+                        </span>
+                      )}
+                      {modelStatus.default_model === model.name && (
+                        <span className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs px-2 py-1 rounded">
+                          Default
+                        </span>
+                      )}
+                    </div>
+                  </div>
                   
-                  <div className="flex items-center justify-between mt-3">
-                    <span className="text-xs text-gray-500 dark:text-gray-400">{model.path}</span>
+                  <div className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+                    <div>Tag: {model.tag}</div>
+                    <div>Size: {formatBytes(model.size)}</div>
+                    <div>Modified: {new Date(model.modified_at).toLocaleDateString()}</div>
+                  </div>
+                  
+                  <div className="flex gap-2">
                     <button
-                      onClick={() => loadBaseModel(model.name)}
-                      disabled={loadingModel || (modelStatus.current_base_model === model.name)}
-                      className="px-3 py-1 bg-blue-600 dark:bg-blue-500 text-white rounded text-sm hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={() => setDefaultModel(model.name)}
+                      disabled={settingDefault === model.name || modelStatus.default_model === model.name}
+                      className="flex-1 px-3 py-2 bg-blue-600 dark:bg-blue-500 text-white text-sm rounded hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
                     >
-                      {loadingModel ? 'Loading...' : 
-                       modelStatus.current_base_model === model.name ? 'Loaded' : 'Load'}
+                      {settingDefault === model.name ? (
+                        <>
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Setting...
+                        </>
+                      ) : modelStatus.default_model === model.name ? (
+                        'Default'
+                      ) : (
+                        'Set as Default'
+                      )}
+                    </button>
+                    <button
+                      onClick={() => openTestModal(model.name)}
+                      disabled={loadingModel === model.name || settingDefault === model.name}
+                      className="px-3 py-2 bg-green-600 dark:bg-green-500 text-white text-sm rounded hover:bg-green-700 dark:hover:bg-green-600 disabled:opacity-50"
+                    >
+                      Test
                     </button>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="text-center py-8">
+              <Server className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">No Models Available</h3>
+              <p className="text-gray-600 dark:text-gray-300 mb-4">
+                No models are currently available in Ollama. Pull a model to get started.
+              </p>
+              <button
+                onClick={() => {
+                  const modelName = prompt("Enter model name to pull (e.g., llama2):");
+                  if (modelName) {
+                    loadModel(modelName);
+                  }
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+              >
+                Pull Model
+              </button>
+            </div>
+          )}
+        </div>
 
-        {/* Adapters Section */}
-        {modelStatus && (
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4">Fine-tuned Adapters</h2>
-            <div className="space-y-4">
-              {Object.entries(modelStatus.adapters).map(([name, adapter]) => (
-                <div key={name} className="border dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-900">
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <h3 className="font-semibold text-gray-800 dark:text-gray-100 capitalize">{name} Agent</h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-300">
-                        Trained on: {adapter.base_model_name}
-                      </p>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        adapter.installed 
-                          ? 'bg-green-100 dark:bg-green-800 text-green-800 dark:text-green-200' 
-                          : 'bg-red-100 dark:bg-red-800 text-red-800 dark:text-red-200'
-                      }`}>
-                        {adapter.installed ? 'Installed' : 'Not Installed'}
-                      </span>
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        adapter.compatible 
-                          ? 'bg-green-100 dark:bg-green-800 text-green-800 dark:text-green-200' 
-                          : 'bg-yellow-100 dark:bg-yellow-800 text-yellow-800 dark:text-yellow-200'
-                      }`}>
-                        {adapter.compatible ? 'Compatible' : 'Incompatible'}
-                      </span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">{adapter.size_gb}GB</span>
+        {/* Test Modal */}
+        {showTestModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-2xl mx-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  Test Model: {testingModel}
+                </h3>
+                <button
+                  onClick={closeTestModal}
+                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                  <XCircle className="w-6 h-6" />
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Prompt
+                  </label>
+                  <textarea
+                    value={testPrompt}
+                    onChange={(e) => setTestPrompt(e.target.value)}
+                    className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 resize-none"
+                    rows={3}
+                    placeholder="Enter your prompt here..."
+                  />
+                </div>
+                
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => testModelGeneration(testingModel!)}
+                    disabled={testLoading}
+                    className="px-4 py-2 bg-blue-600 dark:bg-blue-500 text-white rounded hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {testLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      'Generate Response'
+                    )}
+                  </button>
+                  <button
+                    onClick={closeTestModal}
+                    className="px-4 py-2 bg-gray-600 dark:bg-gray-500 text-white rounded hover:bg-gray-700 dark:hover:bg-gray-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                
+                {testResponse && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Response
+                    </label>
+                    <div className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 min-h-[100px] max-h-[300px] overflow-y-auto whitespace-pre-wrap">
+                      {testResponse}
                     </div>
                   </div>
-                  
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Path: {adapter.path}</p>
-                  
-                  {adapter.installed && modelStatus.base_model_loaded && (
-                    <div className="mt-3">
-                      <button
-                        onClick={() => testModelGeneration(name)}
-                        disabled={loading}
-                        className="px-3 py-1 bg-green-600 dark:bg-green-500 text-white rounded text-sm hover:bg-green-700 dark:hover:bg-green-600 disabled:opacity-50"
-                      >
-                        {loading ? 'Testing...' : 'Test Generation'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
+                )}
+              </div>
             </div>
           </div>
         )}
-
-        {/* Action Buttons */}
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200">Actions</h2>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <button
-              onClick={() => testModelGeneration()}
-              disabled={loading || !modelStatus?.base_model_loaded}
-              className="px-4 py-2 bg-orange-600 dark:bg-orange-500 text-white rounded hover:bg-orange-700 dark:hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Testing...' : 'Test Base Model Generation'}
-            </button>
-            
-            <button
-              onClick={fetchModelStatus}
-              disabled={loading}
-              className="px-4 py-2 bg-gray-600 dark:bg-gray-700 text-white rounded hover:bg-gray-700 dark:hover:bg-gray-600"
-            >
-              Refresh Status
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );
