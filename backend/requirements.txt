@@ -9,4 +9,13 @@ python-multipart==0.0.6
 pydantic==2.5.0
 pydantic-settings==2.1.0
 python-dotenv==1.0.0
-email-validator==2.1.0 
+email-validator==2.1.0
+
+# AI/ML dependencies for multi-agent system
+# unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git  # Commented out due to Python 3.13 compatibility
+transformers>=4.36.0
+torch>=2.0.0
+accelerate>=0.20.0
+bitsandbytes>=0.41.0
+peft>=0.7.0
+huggingface_hub>=0.19.0 

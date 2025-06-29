@@ -8,29 +8,26 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [isDark, setIsDark] = useState(false);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('auris_theme');
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    const shouldBeDark = saved ? saved === 'dark' : prefersDark;
-    setIsDark(shouldBeDark);
-    
-    // Apply theme immediately
-    if (shouldBeDark) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+  const [isDark, setIsDark] = useState(() => {
+    // Initialize with the saved theme or system preference immediately
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('auris_theme');
+      if (saved) {
+        return saved === 'dark';
+      }
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
     }
-  }, []);
+    return false;
+  });
 
+  // Apply theme immediately on mount and when it changes
   useEffect(() => {
-    localStorage.setItem('auris_theme', isDark ? 'dark' : 'light');
     if (isDark) {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
+    localStorage.setItem('auris_theme', isDark ? 'dark' : 'light');
   }, [isDark]);
 
   const toggle = () => setIsDark(!isDark);

@@ -12,6 +12,33 @@ dist
 dist-ssr
 *.local
 
+# Python cache and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Python virtual environments
+.venv/
+venv/
+ENV/
+
+# Model files and directories
+models/
+*.safetensors
+*.bin
+*.gguf
+*.pth
+*.pt
+*.ckpt
+*.h5
+*.onnx
+*.tflite
+
+# Environment files
+.env
+.env.*
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -22,4 +49,3 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-.env

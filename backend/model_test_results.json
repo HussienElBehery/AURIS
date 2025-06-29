@@ -1,0 +1,36 @@
+{
+  "timestamp": "2025-06-29 06:27:21",
+  "tests": {
+    "model_loader": {
+      "status": "failed",
+      "details": [
+        "\u2705 Models directory exists",
+        "\u274c Error in model loader test: 'ModelLoader' object has no attribute 'agent_adapters'"
+      ]
+    },
+    "processing_pipeline": {
+      "status": "passed",
+      "details": [
+        "\u2705 Processing pipeline initialized",
+        "\u2705 Pipeline processing completed",
+        "\u2705 Processing time: 69.57 seconds"
+      ],
+      "overall_status": "failed"
+    },
+    "individual_agents": {
+      "status": "passed",
+      "details": [
+        "\u274c evaluation agent not properly initialized",
+        "\u274c analysis agent not properly initialized",
+        "\u274c recommendation agent not properly initialized"
+      ]
+    },
+    "api_endpoints": {
+      "status": "passed",
+      "details": [
+        "\u2705 Health endpoint accessible",
+        "\u274c Model status endpoint returned 403"
+      ]
+    }
+  }
+}

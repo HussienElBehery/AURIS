@@ -42,10 +42,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       if (token && savedUser) {
         try {
-          // Verify token is still valid by fetching user profile
-          const userProfile = await api.auth.getProfile();
-          setUser(userProfile);
+          // Check if it's a demo token
+          if (token === 'demo-token') {
+            const demoUser = JSON.parse(savedUser);
+            setUser(demoUser);
+          } else {
+            // Verify token is still valid by fetching user profile
+            const userProfile = await api.auth.getProfile();
+            setUser(userProfile);
+          }
         } catch (error) {
+          console.warn('Token validation failed, clearing auth data:', error);
           // Token is invalid, clear storage
           localStorage.removeItem('token');
           localStorage.removeItem('refresh_token');
@@ -108,9 +115,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
-      await api.auth.logout();
+      // Only call logout API if not a demo user
+      const token = localStorage.getItem('token');
+      if (token && token !== 'demo-token') {
+        await api.auth.logout();
+      }
     } catch (error) {
       // Ignore logout errors
+      console.warn('Logout API call failed:', error);
     }
     setUser(null);
     setError(null);

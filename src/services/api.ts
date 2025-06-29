@@ -1,4 +1,4 @@
-import { User, ChatLog, Evaluation, DashboardStats } from '../types';
+import { User, ChatLog, Evaluation, Analysis, Recommendation, DashboardStats, ProcessingStatus } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
 
@@ -15,6 +15,16 @@ async function handleResponse<T>(response: Response): Promise<T> {
     throw new ApiError(response.status, errorData.detail || errorData.message || `HTTP ${response.status}`);
   }
   return response.json();
+}
+
+function getAuthHeaders(): Record<string, string> {
+  const token = localStorage.getItem('token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+// Check if we're in demo mode
+function isDemoMode(): boolean {
+  return localStorage.getItem('token') === 'demo-token';
 }
 
 export const api = {
@@ -34,6 +44,9 @@ export const api = {
       });
       const user = await handleResponse<User>(userResponse);
       
+      // Store refresh token
+      localStorage.setItem('refresh_token', data.refresh_token);
+      
       return { user, token: data.access_token };
     },
 
@@ -50,6 +63,9 @@ export const api = {
         headers: { 'Authorization': `Bearer ${data.access_token}` },
       });
       const user = await handleResponse<User>(userResponse);
+      
+      // Store refresh token
+      localStorage.setItem('refresh_token', data.refresh_token);
       
       return { user, token: data.access_token };
     },
@@ -77,14 +93,19 @@ export const api = {
     logout: async (): Promise<void> => {
       const refreshToken = localStorage.getItem('refresh_token');
       if (refreshToken) {
-        await fetch(`${API_BASE_URL}/auth/logout`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}` 
-          },
-          body: JSON.stringify({ refresh_token: refreshToken }),
-        });
+        try {
+          await fetch(`${API_BASE_URL}/auth/logout`, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('token')}` 
+            },
+            body: JSON.stringify({ refresh_token: refreshToken }),
+          });
+        } catch (error) {
+          // Ignore logout errors
+          console.warn('Logout API call failed:', error);
+        }
       }
     },
 
@@ -96,43 +117,111 @@ export const api = {
     },
   },
 
-  // Chat logs (placeholder - not implemented in backend yet)
+  // Chat logs endpoints
   chatLogs: {
-    getAll: async (filters?: { agentId?: string; dateFrom?: string; dateTo?: string; resolved?: boolean }): Promise<ChatLog[]> => {
-      // For now, return empty array since this endpoint doesn't exist yet
-      return [];
+    getAll: async (): Promise<ChatLog[]> => {
+      // Return mock data for demo mode
+      if (isDemoMode()) {
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            resolve([
+              {
+                id: '1',
+                interactionId: 'INT-001',
+                agentId: 'agent-1',
+                agentPersona: 'Customer Support Agent',
+                transcript: [
+                  { sender: 'customer', text: 'Hello, I need help with my order.' },
+                  { sender: 'agent', text: 'Hi! I\'d be happy to help you with your order.' }
+                ],
+                status: 'completed' as ProcessingStatus,
+                uploadedBy: '1',
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              }
+            ]);
+          }, 500);
+        });
+      }
+
+      const response = await fetch(`${API_BASE_URL}/chat-logs`, {
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<ChatLog[]>(response);
     },
 
     getById: async (id: string): Promise<ChatLog> => {
-      throw new ApiError(501, 'Chat logs endpoint not implemented yet');
+      const response = await fetch(`${API_BASE_URL}/chat-logs/${id}`, {
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<ChatLog>(response);
     },
 
-    create: async (chatLog: Omit<ChatLog, 'id'>): Promise<ChatLog> => {
-      throw new ApiError(501, 'Chat logs endpoint not implemented yet');
+    upload: async (file: File): Promise<ChatLog> => {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch(`${API_BASE_URL}/chat-logs/upload`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: formData,
+      });
+      return handleResponse<ChatLog>(response);
     },
 
-    update: async (id: string, updates: Partial<ChatLog>): Promise<ChatLog> => {
-      throw new ApiError(501, 'Chat logs endpoint not implemented yet');
+    process: async (chatLogId: string): Promise<{ message: string }> => {
+      const response = await fetch(`${API_BASE_URL}/chat-logs/${chatLogId}/process`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<{ message: string }>(response);
+    },
+
+    getStatus: async (chatLogId: string): Promise<{
+      chat_log_id: string;
+      status: ProcessingStatus;
+      progress: Record<string, string>;
+      error_messages: Record<string, string>;
+    }> => {
+      const response = await fetch(`${API_BASE_URL}/chat-logs/${chatLogId}/status`, {
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<{
+        chat_log_id: string;
+        status: ProcessingStatus;
+        progress: Record<string, string>;
+        error_messages: Record<string, string>;
+      }>(response);
     },
   },
 
-  // Evaluations (placeholder - not implemented in backend yet)
+  // Evaluation endpoints
   evaluations: {
-    getAll: async (chatLogId?: string): Promise<Evaluation[]> => {
-      // For now, return empty array since this endpoint doesn't exist yet
-      return [];
+    getByChatLogId: async (chatLogId: string): Promise<Evaluation> => {
+      const response = await fetch(`${API_BASE_URL}/chat-logs/${chatLogId}/evaluation`, {
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<Evaluation>(response);
     },
+  },
 
-    getById: async (id: string): Promise<Evaluation> => {
-      throw new ApiError(501, 'Evaluations endpoint not implemented yet');
+  // Analysis endpoints
+  analysis: {
+    getByChatLogId: async (chatLogId: string): Promise<Analysis> => {
+      const response = await fetch(`${API_BASE_URL}/chat-logs/${chatLogId}/analysis`, {
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<Analysis>(response);
     },
+  },
 
-    create: async (evaluation: Omit<Evaluation, 'id'>): Promise<Evaluation> => {
-      throw new ApiError(501, 'Evaluations endpoint not implemented yet');
-    },
-
-    update: async (id: string, updates: Partial<Evaluation>): Promise<Evaluation> => {
-      throw new ApiError(501, 'Evaluations endpoint not implemented yet');
+  // Recommendation endpoints
+  recommendations: {
+    getByChatLogId: async (chatLogId: string): Promise<Recommendation> => {
+      const response = await fetch(`${API_BASE_URL}/chat-logs/${chatLogId}/recommendation`, {
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<Recommendation>(response);
     },
   },
 
@@ -149,6 +238,80 @@ export const api = {
         unresolvedChats: 3,
         totalEvaluations: 22,
       };
+    },
+  },
+
+  // Models endpoints
+  models: {
+    getStatus: async (): Promise<any> => {
+      const response = await fetch(`${API_BASE_URL}/models/status`, {
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<any>(response);
+    },
+
+    getProgress: async (): Promise<any> => {
+      const response = await fetch(`${API_BASE_URL}/models/progress`, {
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<any>(response);
+    },
+
+    loadBaseModel: async (modelName: string): Promise<any> => {
+      const response = await fetch(`${API_BASE_URL}/models/load`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model_name: modelName }),
+      });
+      return handleResponse<any>(response);
+    },
+
+    testGeneration: async (adapterName?: string): Promise<any> => {
+      const response = await fetch(`${API_BASE_URL}/models/test-generation`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adapter_name: adapterName }),
+      });
+      return handleResponse<any>(response);
+    },
+
+    installBase: async (): Promise<any> => {
+      const response = await fetch(`${API_BASE_URL}/models/install/base`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<any>(response);
+    },
+
+    installAdapters: async (): Promise<any> => {
+      const response = await fetch(`${API_BASE_URL}/models/install/adapters`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<any>(response);
+    },
+
+    installAll: async (): Promise<any> => {
+      const response = await fetch(`${API_BASE_URL}/models/install/all`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<any>(response);
+    },
+
+    testLoading: async (): Promise<any> => {
+      const response = await fetch(`${API_BASE_URL}/models/test`, {
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<any>(response);
+    },
+
+    cleanupCache: async (): Promise<any> => {
+      const response = await fetch(`${API_BASE_URL}/models/cache`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      return handleResponse<any>(response);
     },
   },
 

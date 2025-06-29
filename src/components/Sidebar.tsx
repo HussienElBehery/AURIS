@@ -9,7 +9,8 @@ import {
   FileText, 
   LogOut,
   Moon,
-  Sun
+  Sun,
+  Database
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -30,6 +31,7 @@ const Sidebar: React.FC = () => {
     { to: '/evaluation', icon: BarChart3, label: 'Evaluation' },
     { to: '/analysis', icon: Search, label: 'Analysis' },
     { to: '/recommendation', icon: Lightbulb, label: 'Recommendation' },
+    { to: '/models', icon: Database, label: 'Models' },
     ...(user?.role === 'manager' ? [{ to: '/report', icon: FileText, label: 'Report' }] : [])
   ];
 

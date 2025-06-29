@@ -10,20 +10,22 @@ export interface User {
 
 export interface ChatLog {
   id: string;
-  agentId: string;
-  agentName: string;
-  date: string;
-  resolved: boolean;
-  messages: Message[];
-  evaluation?: Evaluation;
-  customerId?: string;
-  customerName?: string;
-  channel?: 'chat' | 'email' | 'phone';
-  duration?: number; // in seconds
-  tags?: string[];
+  interactionId: string;
+  agentId?: string;
+  agentPersona?: string;
+  transcript: TranscriptMessage[];
+  status: ProcessingStatus;
+  uploadedBy: string;
   createdAt?: string;
   updatedAt?: string;
 }
+
+export interface TranscriptMessage {
+  sender: string;
+  text: string;
+}
+
+export type ProcessingStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
 export interface Message {
   id: string;
@@ -44,22 +46,42 @@ export interface Attachment {
 export interface Evaluation {
   id: string;
   chatLogId: string;
-  coherence: number;
-  relevance: number;
-  politeness: number;
-  resolution: number;
-  reasoning: {
+  coherence?: number;
+  relevance?: number;
+  politeness?: number;
+  resolution?: number;
+  reasoning?: {
     coherence: string;
     relevance: string;
     politeness: string;
     resolution: string;
   };
-  guidelines: GuidelineResult[];
-  issues: string[];
-  highlights: string[];
-  recommendation?: Recommendation;
-  evaluatorId?: string;
-  evaluatorName?: string;
+  evaluationSummary?: string;
+  errorMessage?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Analysis {
+  id: string;
+  chatLogId: string;
+  guidelines?: GuidelineResult[];
+  issues?: string[];
+  highlights?: string[];
+  analysisSummary?: string;
+  errorMessage?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Recommendation {
+  id: string;
+  chatLogId: string;
+  originalMessage?: string;
+  improvedMessage?: string;
+  reasoning?: string;
+  coachingSuggestions?: string[];
+  errorMessage?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -69,14 +91,6 @@ export interface GuidelineResult {
   passed: boolean;
   description: string;
   category?: 'communication' | 'technical' | 'compliance';
-}
-
-export interface Recommendation {
-  original: string;
-  improved: string;
-  reasoning: string;
-  coaching: string[];
-  priority?: 'low' | 'medium' | 'high';
 }
 
 export interface DashboardStats {

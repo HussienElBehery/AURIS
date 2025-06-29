@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional
 import os
 from dotenv import load_dotenv
 
@@ -8,7 +8,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file_
 
 class Settings(BaseSettings):
     # Database
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://username:password@localhost:5432/auris_db")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./auris.db")
     
     # JWT
     SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-here-make-it-long-and-secure")
@@ -20,14 +20,26 @@ class Settings(BaseSettings):
     APP_NAME: str = os.getenv("APP_NAME", "AURIS Backend")
     DEBUG: bool = os.getenv("DEBUG", "True").lower() == "true"
     
-    # CORS
+    # CORS - Allow all common frontend development origins
     CORS_ORIGINS: List[str] = [
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:5173"
+        "http://localhost:5173",      # Vite default
+        "http://localhost:3000",      # React default
+        "http://localhost:8080",      # Vue default
+        "http://127.0.0.1:5173",      # Vite with IP
+        "http://127.0.0.1:3000",      # React with IP
+        "http://127.0.0.1:8080",      # Vue with IP
+        "http://localhost:4173",      # Vite preview
+        "http://127.0.0.1:4173",      # Vite preview with IP
     ]
+    
+    # SMTP Settings (optional)
+    SMTP_HOST: Optional[str] = os.getenv("SMTP_HOST")
+    SMTP_PORT: Optional[str] = os.getenv("SMTP_PORT")
+    SMTP_USER: Optional[str] = os.getenv("SMTP_USER")
+    SMTP_PASSWORD: Optional[str] = os.getenv("SMTP_PASSWORD")
     
     class Config:
         env_file = ".env"
+        extra = "ignore"  # Ignore extra fields in .env file
 
 settings = Settings() 

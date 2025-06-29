@@ -12,6 +12,7 @@ import EvaluationPage from './pages/EvaluationPage';
 import AnalysisPage from './pages/AnalysisPage';
 import RecommendationPage from './pages/RecommendationPage';
 import ReportPage from './pages/ReportPage';
+import ModelManager from './components/ModelManager';
 
 const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
@@ -78,6 +79,11 @@ function App() {
               <Route path="/report" element={
                 <ProtectedRoute>
                   <ReportPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/models" element={
+                <ProtectedRoute>
+                  <ModelManager />
                 </ProtectedRoute>
               } />
             </Routes>
