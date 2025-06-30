@@ -186,33 +186,77 @@ async def get_processing_status(
         # Build progress status
         progress = {}
         error_messages = {}
+        details = {}
         
         if evaluation:
             progress["evaluation"] = "completed" if not evaluation.error_message else "failed"
             if evaluation.error_message:
                 error_messages["evaluation"] = evaluation.error_message
+            details["evaluation"] = {
+                "started_at": getattr(evaluation, "created_at", None),
+                "finished_at": getattr(evaluation, "updated_at", None),
+                "estimated_time": (evaluation.updated_at - evaluation.created_at).total_seconds() if evaluation.created_at and evaluation.updated_at else None
+            }
         else:
             progress["evaluation"] = "pending"
+            details["evaluation"] = {}
         
         if analysis:
             progress["analysis"] = "completed" if not analysis.error_message else "failed"
             if analysis.error_message:
                 error_messages["analysis"] = analysis.error_message
+            details["analysis"] = {
+                "started_at": getattr(analysis, "created_at", None),
+                "finished_at": getattr(analysis, "updated_at", None),
+                "estimated_time": (analysis.updated_at - analysis.created_at).total_seconds() if analysis.created_at and analysis.updated_at else None
+            }
         else:
             progress["analysis"] = "pending"
+            details["analysis"] = {}
         
         if recommendation:
             progress["recommendation"] = "completed" if not recommendation.error_message else "failed"
             if recommendation.error_message:
                 error_messages["recommendation"] = recommendation.error_message
+            details["recommendation"] = {
+                "started_at": getattr(recommendation, "created_at", None),
+                "finished_at": getattr(recommendation, "updated_at", None),
+                "estimated_time": (recommendation.updated_at - recommendation.created_at).total_seconds() if recommendation.created_at and recommendation.updated_at else None
+            }
         else:
             progress["recommendation"] = "pending"
+            details["recommendation"] = {}
         
+        # Determine overall status
+        agent_statuses = [progress.get(agent) for agent in ["evaluation", "analysis", "recommendation"]]
+        if all(s in ["completed", "failed"] for s in agent_statuses):
+            overall_status = "completed"
+        elif any(s == "processing" for s in agent_statuses):
+            overall_status = "processing"
+        else:
+            overall_status = chat_log.status
+
+        # Add model_name to details if available
+        # (Assume model_name is stored in the agent result, or fallback to ollama_service.get_current_model())
+        if evaluation and hasattr(evaluation, 'model_used') and evaluation.model_used:
+            details["evaluation"]["model_name"] = evaluation.model_used
+        else:
+            details["evaluation"]["model_name"] = ollama_service.get_current_model()
+        if analysis and hasattr(analysis, 'model_used') and analysis.model_used:
+            details["analysis"]["model_name"] = analysis.model_used
+        else:
+            details["analysis"]["model_name"] = ollama_service.get_current_model()
+        if recommendation and hasattr(recommendation, 'model_used') and recommendation.model_used:
+            details["recommendation"]["model_name"] = recommendation.model_used
+        else:
+            details["recommendation"]["model_name"] = ollama_service.get_current_model()
+
         return ProcessingStatusResponse(
             chat_log_id=chat_log_id,
-            status=chat_log.status,
+            status=overall_status,
             progress=progress,
-            error_messages=error_messages
+            error_messages=error_messages,
+            details=details
         )
         
     except HTTPException:
@@ -565,60 +609,6 @@ async def get_all_evaluations(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting all evaluations: {str(e)}")
 
-@router.post("/{chat_log_id}/reanalyze-analysis", response_model=AnalysisResponse)
-async def reanalyze_analysis(
-    chat_log_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Re-run the analysis agent for a chat log, regardless of status. Deletes any existing analysis.
-    """
-    logger = logging.getLogger("reanalyze_analysis")
-    try:
-        chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
-        if not chat_log:
-            raise HTTPException(status_code=404, detail="Chat log not found")
-        # Delete existing analysis
-        db.query(Analysis).filter(Analysis.chat_log_id == chat_log_id).delete()
-        db.commit()
-        # Run analysis agent
-        transcript = chat_log.transcript
-        logger.info(f"Calling analysis agent for chat_log_id={chat_log_id}")
-        result = await analysis_agent.analyze_chat(transcript)
-        logger.info(f"Analysis agent result: {result}")
-        # Store new analysis with correct keys
-        analysis = Analysis(
-            id=str(uuid.uuid4()),
-            chat_log_id=chat_log_id,
-            agent_id=chat_log.agent_id,
-            guidelines=result.get("guidelines"),
-            issues=result.get("key_issues", []),
-            highlights=result.get("highlights", []) or result.get("positive_highlights", []),
-            analysis_summary=result.get("analysis_summary"),
-            error_message=result.get("error_message")
-        )
-        db.add(analysis)
-        db.commit()
-        db.refresh(analysis)
-        return AnalysisResponse(
-            id=analysis.id,
-            chat_log_id=analysis.chat_log_id,
-            agent_id=analysis.agent_id,
-            guidelines=analysis.guidelines,
-            issues=analysis.issues,
-            highlights=analysis.highlights,
-            analysis_summary=analysis.analysis_summary,
-            error_message=analysis.error_message,
-            created_at=analysis.created_at,
-            updated_at=analysis.updated_at
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in reanalyze_analysis: {e}")
-        raise HTTPException(status_code=500, detail=f"Error reanalyzing analysis: {str(e)}")
-
 async def process_chat_log_background(
     chat_log_id: str,
     transcript: List[Dict[str, str]],
@@ -628,111 +618,110 @@ async def process_chat_log_background(
     """
     Background task to process chat log through all agents.
     """
+    import logging
+    logger = logging.getLogger(__name__)
     try:
+        logger.info(f"[PROCESSING] Starting background processing for chat_log_id={chat_log_id}")
         # Process through pipeline
         results = await processing_pipeline.process_chat_log(transcript, chat_log_id)
-        
+        logger.info(f"[PROCESSING] Pipeline results for chat_log_id={chat_log_id}: {results}")
         # Store results in database
-        for agent_type, agent_data in results["agents"].items():
-            if agent_data["status"] == "completed" and "result" in agent_data:
-                result = agent_data["result"]
-                
-                if agent_type == "evaluation":
-                    result_data = result
-                    # Get the chat_log to get the agent_id
+        agent_types = ["evaluation", "analysis", "recommendation"]
+        for agent_type in agent_types:
+            agent_data = results["agents"].get(agent_type)
+            if agent_data:
+                if agent_data["status"] == "completed" and "result" in agent_data:
+                    result = agent_data["result"]
+                    logger.info(f"[PROCESSING] {agent_type} completed for chat_log_id={chat_log_id}")
+                    if agent_type == "evaluation":
+                        chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
+                        evaluation = Evaluation(
+                            id=str(uuid.uuid4()),
+                            chat_log_id=chat_log_id,
+                            agent_id=chat_log.agent_id if chat_log else None,
+                            coherence=result.get("coherence", {}).get("score"),
+                            relevance=result.get("relevance", {}).get("score"),
+                            politeness=result.get("politeness", {}).get("score"),
+                            resolution=result.get("resolution", {}).get("score"),
+                            reasoning=result,  # Store the full reasoning object
+                            evaluation_summary=result.get("evaluation_summary"),
+                            error_message=result.get("error_message")
+                        )
+                        db.add(evaluation)
+                    elif agent_type == "analysis":
+                        chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
+                        analysis = Analysis(
+                            id=str(uuid.uuid4()),
+                            chat_log_id=chat_log_id,
+                            agent_id=chat_log.agent_id if chat_log else None,
+                            guidelines=result.get("guidelines"),
+                            issues=result.get("issues"),
+                            highlights=result.get("highlights"),
+                            analysis_summary=result.get("analysis_summary"),
+                            error_message=result.get("error_message")
+                        )
+                        db.add(analysis)
+                    elif agent_type == "recommendation":
+                        recommendation = Recommendation(
+                            id=str(uuid.uuid4()),
+                            chat_log_id=chat_log_id,
+                            original_message=result.get("original_message"),
+                            improved_message=result.get("improved_message"),
+                            reasoning=result.get("reasoning"),
+                            coaching_suggestions=result.get("coaching_suggestions"),
+                            error_message=result.get("error_message")
+                        )
+                        db.add(recommendation)
+                elif agent_data["status"] == "failed":
+                    logger.error(f"[PROCESSING] {agent_type} failed for chat_log_id={chat_log_id}: {agent_data.get('error_message')}")
                     chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
-                    evaluation = Evaluation(
-                        id=str(uuid.uuid4()),
-                        chat_log_id=chat_log_id,
-                        agent_id=chat_log.agent_id if chat_log else None,  # Add agent_id
-                        coherence=result_data.get("coherence", {}).get("score"),
-                        relevance=result_data.get("relevance", {}).get("score"),
-                        politeness=result_data.get("politeness", {}).get("score"),
-                        resolution=result_data.get("resolution", {}).get("score"),
-                        reasoning=result_data,  # Store the full reasoning object
-                        evaluation_summary=result_data.get("evaluation_summary"),
-                        error_message=result_data.get("error_message")
-                    )
-                    db.add(evaluation)
-                
-                elif agent_type == "analysis":
-                    analysis = Analysis(
-                        id=str(uuid.uuid4()),
-                        chat_log_id=chat_log_id,
-                        agent_id=chat_log.agent_id,
-                        guidelines=result.get("guidelines"),
-                        issues=result.get("issues"),
-                        highlights=result.get("highlights"),
-                        analysis_summary=result.get("analysis_summary"),
-                        error_message=result.get("error_message")
-                    )
-                    db.add(analysis)
-                
-                elif agent_type == "recommendation":
-                    recommendation = Recommendation(
-                        id=str(uuid.uuid4()),
-                        chat_log_id=chat_log_id,
-                        original_message=result.get("original_message"),
-                        improved_message=result.get("improved_message"),
-                        reasoning=result.get("reasoning"),
-                        coaching_suggestions=result.get("coaching_suggestions"),
-                        error_message=result.get("error_message")
-                    )
-                    db.add(recommendation)
-            
-            elif agent_data["status"] == "failed":
-                # Create error records
-                if agent_type == "evaluation":
-                    # Get the chat_log to get the agent_id
-                    chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
-                    evaluation = Evaluation(
-                        id=str(uuid.uuid4()),
-                        chat_log_id=chat_log_id,
-                        agent_id=chat_log.agent_id if chat_log else None,  # Add agent_id
-                        error_message=agent_data["error_message"]
-                    )
-                    db.add(evaluation)
-                
-                elif agent_type == "analysis":
-                    analysis = Analysis(
-                        id=str(uuid.uuid4()),
-                        chat_log_id=chat_log_id,
-                        agent_id=chat_log.agent_id,
-                        error_message=agent_data["error_message"]
-                    )
-                    db.add(analysis)
-                
-                elif agent_type == "recommendation":
-                    recommendation = Recommendation(
-                        id=str(uuid.uuid4()),
-                        chat_log_id=chat_log_id,
-                        error_message=agent_data["error_message"]
-                    )
-                    db.add(recommendation)
-        
+                    if agent_type == "evaluation":
+                        evaluation = Evaluation(
+                            id=str(uuid.uuid4()),
+                            chat_log_id=chat_log_id,
+                            agent_id=chat_log.agent_id if chat_log else None,
+                            error_message=agent_data.get("error_message")
+                        )
+                        db.add(evaluation)
+                    elif agent_type == "analysis":
+                        analysis = Analysis(
+                            id=str(uuid.uuid4()),
+                            chat_log_id=chat_log_id,
+                            agent_id=chat_log.agent_id if chat_log else None,
+                            error_message=agent_data.get("error_message")
+                        )
+                        db.add(analysis)
+                    elif agent_type == "recommendation":
+                        recommendation = Recommendation(
+                            id=str(uuid.uuid4()),
+                            chat_log_id=chat_log_id,
+                            error_message=agent_data.get("error_message")
+                        )
+                        db.add(recommendation)
+            else:
+                logger.warning(f"[PROCESSING] No result for agent {agent_type} for chat_log_id={chat_log_id}")
         # Update chat log status
         chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
         if chat_log:
+            logger.info(f"[PROCESSING] Setting chat_log.status for chat_log_id={chat_log_id} to {results['overall_status']}")
             if results["overall_status"] == "completed":
                 chat_log.status = ProcessingStatus.COMPLETED
             elif results["overall_status"] == "failed":
                 chat_log.status = ProcessingStatus.FAILED
             else:
                 chat_log.status = ProcessingStatus.COMPLETED  # Partial success is still completed
-        
         db.commit()
-        
+        logger.info(f"[PROCESSING] Finished processing and committed for chat_log_id={chat_log_id}")
     except Exception as e:
         # Update chat log status to failed
+        logger.error(f"[PROCESSING] Exception in background processing for chat_log_id={chat_log_id}: {e}")
         try:
             chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
             if chat_log:
                 chat_log.status = ProcessingStatus.FAILED
             db.commit()
-        except:
-            pass
-        
-        print(f"Error in background processing: {e}")
+        except Exception as db_e:
+            logger.error(f"[PROCESSING] Failed to update chat_log status to FAILED for chat_log_id={chat_log_id}: {db_e}")
 
 @router.get("/analyses/by-agent/{agent_id}", response_model=List[AnalysisResponse])
 async def get_analyses_by_agent(

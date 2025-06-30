@@ -9,6 +9,7 @@ interface UploadState {
   progress: Record<string, string>;
   errorMessages: Record<string, string>;
   error: string | null;
+  details?: Record<string, any>;
 }
 
 interface UploadContextType {
@@ -27,17 +28,56 @@ const initialUploadState: UploadState = {
   progress: {},
   errorMessages: {},
   error: null,
+  details: {},
 };
+
+const UPLOAD_CHATLOG_KEY = 'auris_last_chatlog_id';
+const UPLOAD_STATUS_KEY = 'auris_last_processing_status';
 
 export const UploadProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [uploadState, setUploadState] = useState<UploadState>(initialUploadState);
 
+  // On mount, load last chat log ID and status from localStorage
+  React.useEffect(() => {
+    const lastId = localStorage.getItem(UPLOAD_CHATLOG_KEY);
+    const lastStatus = localStorage.getItem(UPLOAD_STATUS_KEY);
+    if (lastId) {
+      setUploadState(prev => ({
+        ...prev,
+        uploadedChatLog: lastId ? {
+          id: lastId,
+          interaction_id: prev.uploadedChatLog?.interaction_id || '',
+          transcript: [],
+          status: (lastStatus as ProcessingStatus) || 'pending',
+          uploaded_by: '',
+          created_at: '',
+          updated_at: ''
+        } : null,
+        processingStatus: (lastStatus as ProcessingStatus) || 'pending',
+      }));
+    }
+  }, []);
+
+  // Save only on upload success, processing start, and completion
+  const setUploadStateAndPersist = (updater: React.SetStateAction<UploadState>) => {
+    setUploadState(prev => {
+      const next = typeof updater === 'function' ? (updater as any)(prev) : updater;
+      if (next.uploadedChatLog?.id) {
+        localStorage.setItem(UPLOAD_CHATLOG_KEY, next.uploadedChatLog.id);
+        localStorage.setItem(UPLOAD_STATUS_KEY, next.processingStatus);
+      }
+      return next;
+    });
+  };
+
   const resetUploadState = () => {
     setUploadState(initialUploadState);
+    localStorage.removeItem(UPLOAD_CHATLOG_KEY);
+    localStorage.removeItem(UPLOAD_STATUS_KEY);
   };
 
   return (
-    <UploadContext.Provider value={{ uploadState, setUploadState, resetUploadState }}>
+    <UploadContext.Provider value={{ uploadState, setUploadState: setUploadStateAndPersist, resetUploadState }}>
       {children}
     </UploadContext.Provider>
   );

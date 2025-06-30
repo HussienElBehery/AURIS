@@ -186,60 +186,19 @@ class EvaluationAgent:
         """
     
     def _generate_evaluation_summary(self, parsed_result: Dict[str, Any], transcript_text: str, model_name: str) -> str:
-        """Generate a comprehensive evaluation summary."""
-        try:
-            summary_prompt = f"""
-Based on the following evaluation results, generate a comprehensive evaluation summary that combines all metrics and their reasoning:
+        """Generate a summary paragraph for evaluation metrics and reasoning."""
+        # Each metric is an integer (1-5), resolution is 0 or 1
+        coherence = parsed_result.get("coherence", {"score": 3, "reasoning": "No reasoning provided."})
+        relevance = parsed_result.get("relevance", {"score": 3, "reasoning": "No reasoning provided."})
+        politeness = parsed_result.get("politeness", {"score": 3, "reasoning": "No reasoning provided."})
+        resolution = parsed_result.get("resolution", {"score": 0, "reasoning": "No reasoning provided."})
 
-EVALUATION RESULTS:
-{json.dumps(parsed_result, indent=2)}
-
-CONVERSATION CONTEXT:
-{transcript_text[:500]}...
-
-Please provide a comprehensive evaluation summary that:
-1. Synthesizes all four metrics (coherence, relevance, politeness, resolution)
-2. Highlights key strengths and areas for improvement
-3. Provides actionable insights for the agent
-4. Maintains a professional and constructive tone
-5. Is 2-3 paragraphs long
-
-Focus on creating a summary that would be useful for training and improvement purposes.
-"""
-            
-            # Generate summary using Ollama
-            summary_response = ollama_service.generate_evaluation(model_name, summary_prompt)
-            
-            if summary_response.startswith("Error"):
-                # Fallback to manual summary generation
-                return self._generate_fallback_summary(parsed_result)
-            
-            return summary_response.strip()
-            
-        except Exception as e:
-            logger.error(f"Error generating evaluation summary: {e}")
-            return self._generate_fallback_summary(parsed_result)
-    
-    def _generate_fallback_summary(self, parsed_result: Dict[str, Any]) -> str:
-        """Generate a fallback summary if AI generation fails."""
-        coherence = parsed_result.get("coherence", {"score": 3, "reasoning": "Unable to determine"})
-        relevance = parsed_result.get("relevance", {"score": 3, "reasoning": "Unable to determine"})
-        politeness = parsed_result.get("politeness", {"score": 3, "reasoning": "Unable to determine"})
-        resolution = parsed_result.get("resolution", {"score": 0, "reasoning": "Unable to determine"})
-        
-        # Calculate overall score
-        overall_score = (coherence["score"] + relevance["score"] + politeness["score"] + resolution["score"]) / 4
-        
-        summary = f"""
-Overall Evaluation Summary:
-
-This customer service interaction received an overall score of {overall_score:.1f}/5. The conversation demonstrated {coherence['score']}/5 coherence, {relevance['score']}/5 relevance, and {politeness['score']}/5 politeness. The issue was {'resolved' if resolution['score'] == 1 else 'not resolved'}.
-
-Key observations include: {coherence['reasoning'][:100]}... For relevance, {relevance['reasoning'][:100]}... Regarding politeness, {politeness['reasoning'][:100]}... The resolution status indicates {resolution['reasoning'][:100]}...
-
-Recommendations for improvement focus on addressing the specific areas identified in each metric's reasoning, with particular attention to maintaining professional communication standards and ensuring customer satisfaction.
-"""
-        
+        summary = (
+            f"Coherence: {int(coherence['score'])}. {coherence['reasoning'].strip()} "
+            f"Relevance: {int(relevance['score'])}. {relevance['reasoning'].strip()} "
+            f"Politeness: {int(politeness['score'])}. {politeness['reasoning'].strip()} "
+            f"Resolution: {int(resolution['score'])}. {resolution['reasoning'].strip()}"
+        )
         return summary.strip()
     
     def _format_transcript(self, transcript: List[Dict[str, str]]) -> str:

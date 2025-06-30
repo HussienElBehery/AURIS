@@ -174,6 +174,7 @@ class ProcessingStatusResponse(BaseModel):
     status: ProcessingStatus
     progress: Dict[str, str]  # Agent status: "pending", "processing", "completed", "failed"
     error_messages: Dict[str, str]  # Agent error messages
+    details: Optional[Dict[str, Any]] = None  # Agent details: started_at, finished_at, estimated_time, current_step
 
 # Response schemas
 class MessageResponse(BaseModel):

@@ -28,7 +28,10 @@ function isDemoMode(): boolean {
 }
 
 function mapAnalysisResponse(data: any): Analysis {
-  return {
+  // Check function for debugging
+  console.log('--- mapAnalysisResponse Check ---');
+  console.log('raw data:', data);
+  const mapped = {
     id: data.id,
     chatLogId: data.chat_log_id,
     agentId: data.agent_id,
@@ -40,6 +43,9 @@ function mapAnalysisResponse(data: any): Analysis {
     createdAt: data.created_at,
     updatedAt: data.updated_at,
   };
+  console.log('mapped analysis:', mapped);
+  console.log('-------------------------------');
+  return mapped;
 }
 
 export const api = {
@@ -180,6 +186,7 @@ export const api = {
       status: ProcessingStatus;
       progress: Record<string, string>;
       error_messages: Record<string, string>;
+      details?: Record<string, any>;
     }> => {
       const response = await fetch(`${API_BASE_URL}/chat-logs/${chatLogId}/status`, {
         headers: getAuthHeaders(),
@@ -189,6 +196,7 @@ export const api = {
         status: ProcessingStatus;
         progress: Record<string, string>;
         error_messages: Record<string, string>;
+        details?: Record<string, any>;
       }>(response);
     },
 

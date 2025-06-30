@@ -9,10 +9,11 @@ interface ChartProps {
   type: 'bar' | 'line';
   title: string;
   className?: string;
+  maxValue?: number;
 }
 
-const Chart: React.FC<ChartProps> = ({ data, type, title, className = '' }) => {
-  const maxValue = Math.max(...data.map(d => d.value));
+const Chart: React.FC<ChartProps> = ({ data, type, title, className = '', maxValue }) => {
+  const computedMax = maxValue !== undefined ? maxValue : Math.max(...data.map(d => d.value));
 
   if (type === 'bar') {
     return (
@@ -28,7 +29,7 @@ const Chart: React.FC<ChartProps> = ({ data, type, title, className = '' }) => {
               <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                 <div
                   className={`h-2 rounded-full ${item.color || 'bg-blue-600'}`}
-                  style={{ width: `${(item.value / maxValue) * 100}%` }}
+                  style={{ width: `${computedMax > 0 ? (item.value / computedMax) * 100 : 0}%` }}
                 />
               </div>
             </div>
@@ -46,7 +47,7 @@ const Chart: React.FC<ChartProps> = ({ data, type, title, className = '' }) => {
           <div key={index} className="flex-1 flex flex-col items-center">
             <div
               className={`w-full ${item.color || 'bg-blue-600'} rounded-t`}
-              style={{ height: `${(item.value / maxValue) * 200}px` }}
+              style={{ height: `${(item.value / computedMax) * 200}px` }}
             />
             <span className="text-xs text-gray-600 dark:text-gray-400 mt-2 text-center">
               {item.label}

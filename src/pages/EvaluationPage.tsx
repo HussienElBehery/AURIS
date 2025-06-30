@@ -115,13 +115,19 @@ const EvaluationPage: React.FC = () => {
     resolution: filteredEvaluations.reduce((sum, e) => sum + (e.resolution || 0), 0) / filteredEvaluations.length
   } : { coherence: 0, relevance: 0, politeness: 0, resolution: 0 };
 
-  console.log('Average metrics:', avgMetrics);
+  // Format averages to 1 decimal place for display and chart
+  const formattedAvgMetrics = {
+    coherence: Number(avgMetrics.coherence.toFixed(1)),
+    relevance: Number(avgMetrics.relevance.toFixed(1)),
+    politeness: Number(avgMetrics.politeness.toFixed(1)),
+    resolution: Number(avgMetrics.resolution.toFixed(2)),
+  };
 
   const chartData = [
-    { label: 'Coherence', value: avgMetrics.coherence, color: 'bg-blue-600' },
-    { label: 'Relevance', value: avgMetrics.relevance, color: 'bg-emerald-600' },
-    { label: 'Politeness', value: avgMetrics.politeness, color: 'bg-purple-600' },
-    { label: 'Resolution', value: avgMetrics.resolution * 5, color: 'bg-yellow-600' }
+    { label: 'Coherence', value: formattedAvgMetrics.coherence, color: 'bg-blue-600', max: 5 },
+    { label: 'Relevance', value: formattedAvgMetrics.relevance, color: 'bg-emerald-600', max: 5 },
+    { label: 'Politeness', value: formattedAvgMetrics.politeness, color: 'bg-purple-600', max: 5 },
+    { label: 'Resolution', value: formattedAvgMetrics.resolution, color: 'bg-yellow-600', max: 1 }
   ];
 
   // Show demo notice for demo users
@@ -225,28 +231,28 @@ const EvaluationPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <MetricCard
               title="Coherence"
-              value={currentEvaluation ? (currentEvaluation.coherence || 0).toFixed(1) : avgMetrics.coherence.toFixed(1)}
+              value={currentEvaluation ? (currentEvaluation.coherence || 0).toFixed(1) : formattedAvgMetrics.coherence.toFixed(1)}
               subtitle="out of 5.0"
               icon={Brain}
               color="blue"
             />
             <MetricCard
               title="Relevance"
-              value={currentEvaluation ? (currentEvaluation.relevance || 0).toFixed(1) : avgMetrics.relevance.toFixed(1)}
+              value={currentEvaluation ? (currentEvaluation.relevance || 0).toFixed(1) : formattedAvgMetrics.relevance.toFixed(1)}
               subtitle="out of 5.0"
               icon={MessageSquare}
               color="green"
             />
             <MetricCard
               title="Politeness"
-              value={currentEvaluation ? (currentEvaluation.politeness || 0).toFixed(1) : avgMetrics.politeness.toFixed(1)}
+              value={currentEvaluation ? (currentEvaluation.politeness || 0).toFixed(1) : formattedAvgMetrics.politeness.toFixed(1)}
               subtitle="out of 5.0"
               icon={Heart}
               color="purple"
             />
             <MetricCard
               title="Resolution"
-              value={currentEvaluation ? (currentEvaluation.resolution || 0) : avgMetrics.resolution.toFixed(2)}
+              value={currentEvaluation ? (currentEvaluation.resolution || 0).toFixed(2) : formattedAvgMetrics.resolution.toFixed(2)}
               subtitle={currentEvaluation ? (currentEvaluation.resolution ? 'Resolved' : 'Unresolved') : 'Rate'}
               icon={CheckCircle}
               color="yellow"
@@ -256,9 +262,10 @@ const EvaluationPage: React.FC = () => {
           {/* Charts and Detailed Analysis */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Chart
-              data={chartData}
+              data={chartData.map(d => ({ ...d, value: Number(d.value.toFixed(1)) }))}
               type="bar"
               title={selectedChat === 'all' ? 'Average Performance Metrics' : 'Chat Performance Metrics'}
+              maxValue={selectedChat === 'all' ? 5 : undefined}
             />
 
             {/* Reasoning Section */}
@@ -317,25 +324,25 @@ const EvaluationPage: React.FC = () => {
                       <div>
                         <span className="text-gray-500 dark:text-gray-400">Avg. Coherence:</span>
                         <span className="ml-2 font-medium text-blue-600 dark:text-blue-400">
-                          {avgMetrics.coherence.toFixed(1)}/5.0
+                          {formattedAvgMetrics.coherence.toFixed(1)}/5.0
                         </span>
                       </div>
                       <div>
                         <span className="text-gray-500 dark:text-gray-400">Avg. Relevance:</span>
                         <span className="ml-2 font-medium text-emerald-600 dark:text-emerald-400">
-                          {avgMetrics.relevance.toFixed(1)}/5.0
+                          {formattedAvgMetrics.relevance.toFixed(1)}/5.0
                         </span>
                       </div>
                       <div>
                         <span className="text-gray-500 dark:text-gray-400">Avg. Politeness:</span>
                         <span className="ml-2 font-medium text-purple-600 dark:text-purple-400">
-                          {avgMetrics.politeness.toFixed(1)}/5.0
+                          {formattedAvgMetrics.politeness.toFixed(1)}/5.0
                         </span>
                       </div>
                       <div>
                         <span className="text-gray-500 dark:text-gray-400">Avg. Resolution:</span>
                         <span className="ml-2 font-medium text-yellow-600 dark:text-yellow-400">
-                          {avgMetrics.resolution.toFixed(2)}
+                          {formattedAvgMetrics.resolution.toFixed(2)}
                         </span>
                       </div>
                     </div>

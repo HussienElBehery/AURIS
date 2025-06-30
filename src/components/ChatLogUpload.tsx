@@ -16,6 +16,8 @@ const ChatLogUpload: React.FC<ChatLogUploadProps> = ({
   const [settingDefault, setSettingDefault] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollIntervalRef = useRef<number | null>(null);
+  const [modelStatus, setModelStatus] = useState<any>(null);
+  const [modelStatusError, setModelStatusError] = useState<string | null>(null);
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -69,10 +71,14 @@ const ChatLogUpload: React.FC<ChatLogUploadProps> = ({
             ...prev,
             processingStatus: status.status,
             progress: status.progress,
-            errorMessages: status.error_messages
+            errorMessages: status.error_messages,
+            details: status.details
           }));
 
-          if (status.status === 'completed' || status.status === 'failed') {
+          // Stop polling if all agents are completed or failed
+          const agentStatuses = Object.values(status.progress || {});
+          const allDone = agentStatuses.length > 0 && agentStatuses.every(s => s === 'completed' || s === 'failed');
+          if (status.status === 'completed' || status.status === 'failed' || allDone) {
             if (pollIntervalRef.current) {
               clearInterval(pollIntervalRef.current);
               pollIntervalRef.current = null;
@@ -176,6 +182,50 @@ const ChatLogUpload: React.FC<ChatLogUploadProps> = ({
       }
     };
   }, []);
+
+  // Poll model status
+  useEffect(() => {
+    let interval: any = null;
+    const fetchModelStatus = async () => {
+      try {
+        const res = await fetch('/api/chat-logs/debug/model-status');
+        const data = await res.json();
+        setModelStatus(data);
+        setModelStatusError(null);
+      } catch (err: any) {
+        setModelStatusError('Failed to fetch model status');
+      }
+    };
+    fetchModelStatus();
+    interval = setInterval(fetchModelStatus, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // On mount, if uploadState.uploadedChatLog exists and status is not completed/failed, resume polling
+  useEffect(() => {
+    if (uploadState.uploadedChatLog && uploadState.processingStatus === 'processing') {
+      startProcessing(uploadState.uploadedChatLog.id);
+    }
+    // eslint-disable-next-line
+  }, []);
+
+  // Add a refresh status button
+  const handleRefreshStatus = async () => {
+    if (uploadState.uploadedChatLog) {
+      try {
+        const status = await api.chatLogs.getStatus(uploadState.uploadedChatLog.id);
+        setUploadState(prev => ({
+          ...prev,
+          processingStatus: status.status,
+          progress: status.progress,
+          errorMessages: status.error_messages,
+          details: status.details
+        }));
+      } catch (err: any) {
+        setUploadState(prev => ({ ...prev, error: 'Failed to refresh status' }));
+      }
+    }
+  };
 
   const getStatusColor = (status: ProcessingStatus) => {
     switch (status) {
@@ -306,16 +356,31 @@ const ChatLogUpload: React.FC<ChatLogUploadProps> = ({
                 </span>
               </div>
 
-              {Object.entries(uploadState.progress).map(([agent, status]) => (
-                <div key={agent} className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600 dark:text-gray-400 capitalize">
-                    {agent} Agent:
-                  </span>
-                  <span className={`text-sm font-medium ${getAgentStatusColor(status)}`}>
-                    {status.charAt(0).toUpperCase() + status.slice(1)}
-                  </span>
-                </div>
-              ))}
+              {Object.entries(uploadState.progress).map(([agent, status]) => {
+                const details = uploadState.details?.[agent] || {};
+                return (
+                  <div key={agent} className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2">
+                    <span className="text-sm text-gray-600 dark:text-gray-400 capitalize">
+                      {agent.charAt(0).toUpperCase() + agent.slice(1)} Agent:
+                    </span>
+                    <span className={`text-sm font-medium ${getAgentStatusColor(status)}`}>
+                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                      {details.model_name && (
+                        <span className="ml-2 text-xs text-blue-600 dark:text-blue-400">Model: {details.model_name}</span>
+                      )}
+                      {details.started_at && (
+                        <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">Started: {new Date(details.started_at).toLocaleTimeString()}</span>
+                      )}
+                      {details.finished_at && (
+                        <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">Finished: {new Date(details.finished_at).toLocaleTimeString()}</span>
+                      )}
+                      {details.estimated_time && (
+                        <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">Est. Time: {Math.round(details.estimated_time)}s</span>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
 
             {Object.keys(uploadState.errorMessages).length > 0 && (
@@ -367,6 +432,22 @@ const ChatLogUpload: React.FC<ChatLogUploadProps> = ({
               Upload New File
             </button>
           </div>
+
+          {modelStatus && (
+            <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-4 mb-4">
+              <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-2">Model Status</h4>
+              <pre className="text-xs text-gray-700 dark:text-gray-300 overflow-x-auto">{JSON.stringify(modelStatus, null, 2)}</pre>
+              {modelStatusError && <div className="text-red-600 text-xs">{modelStatusError}</div>}
+            </div>
+          )}
+
+          <button
+            onClick={handleRefreshStatus}
+            className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-xs ml-2"
+            disabled={!uploadState.uploadedChatLog}
+          >
+            Refresh Status
+          </button>
         </div>
       )}
     </div>
