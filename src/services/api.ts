@@ -48,6 +48,49 @@ function mapAnalysisResponse(data: any): Analysis {
   return mapped;
 }
 
+// Add a helper to check token expiry (JWT exp claim)
+function isTokenExpired(token: string | null): boolean {
+  if (!token) return true;
+  try {
+    const [, payload] = token.split('.');
+    const decoded = JSON.parse(atob(payload));
+    if (!decoded.exp) return false;
+    return Date.now() / 1000 > decoded.exp - 60; // Consider expired 1 min before
+  } catch {
+    return true;
+  }
+}
+
+// Wrap fetch to handle auto-refresh
+async function fetchWithAuthRetry(input: RequestInfo, init: RequestInit = {}, retry = true): Promise<Response> {
+  let token = localStorage.getItem('token');
+  if (isTokenExpired(token)) {
+    try {
+      const refreshed = await api.auth.refreshToken();
+      token = refreshed.token;
+    } catch {
+      // Refresh failed, log out
+      await api.auth.logout();
+      throw new ApiError(401, 'Session expired. Please log in again.');
+    }
+  }
+  const headers = { ...(init.headers || {}), Authorization: `Bearer ${token}` };
+  const response = await fetch(input, { ...init, headers });
+  if (response.status === 401 && retry) {
+    // Try refresh once more
+    try {
+      const refreshed = await api.auth.refreshToken();
+      token = refreshed.token;
+      const retryHeaders = { ...(init.headers || {}), Authorization: `Bearer ${token}` };
+      return await fetch(input, { ...init, headers: retryHeaders });
+    } catch {
+      await api.auth.logout();
+      throw new ApiError(401, 'Session expired. Please log in again.');
+    }
+  }
+  return response;
+}
+
 export const api = {
   // Auth endpoints
   auth: {
@@ -141,23 +184,17 @@ export const api = {
   // Chat logs endpoints
   chatLogs: {
     getAll: async (): Promise<ChatLog[]> => {
-      const response = await fetch(`${API_BASE_URL}/chat-logs/`, {
-        headers: getAuthHeaders(),
-      });
+      const response = await fetchWithAuthRetry(`${API_BASE_URL}/chat-logs/`);
       return handleResponse<ChatLog[]>(response);
     },
 
     getById: async (chatLogId: string): Promise<ChatLog> => {
-      const response = await fetch(`${API_BASE_URL}/chat-logs/${chatLogId}`, {
-        headers: getAuthHeaders(),
-      });
+      const response = await fetchWithAuthRetry(`${API_BASE_URL}/chat-logs/${chatLogId}`);
       return handleResponse<ChatLog>(response);
     },
 
     getEvaluation: async (chatLogId: string): Promise<Evaluation> => {
-      const response = await fetch(`${API_BASE_URL}/chat-logs/${chatLogId}/evaluation`, {
-        headers: getAuthHeaders(),
-      });
+      const response = await fetchWithAuthRetry(`${API_BASE_URL}/chat-logs/${chatLogId}/evaluation`);
       return handleResponse<Evaluation>(response);
     },
 
@@ -165,18 +202,16 @@ export const api = {
       const formData = new FormData();
       formData.append('file', file);
       
-      const response = await fetch(`${API_BASE_URL}/chat-logs/upload`, {
+      const response = await fetchWithAuthRetry(`${API_BASE_URL}/chat-logs/upload`, {
         method: 'POST',
-        headers: getAuthHeaders(),
         body: formData,
       });
       return handleResponse<ChatLog>(response);
     },
 
     process: async (chatLogId: string): Promise<{ message: string }> => {
-      const response = await fetch(`${API_BASE_URL}/chat-logs/${chatLogId}/process`, {
+      const response = await fetchWithAuthRetry(`${API_BASE_URL}/chat-logs/${chatLogId}/process`, {
         method: 'POST',
-        headers: getAuthHeaders(),
       });
       return handleResponse<{ message: string }>(response);
     },
@@ -188,9 +223,7 @@ export const api = {
       error_messages: Record<string, string>;
       details?: Record<string, any>;
     }> => {
-      const response = await fetch(`${API_BASE_URL}/chat-logs/${chatLogId}/status`, {
-        headers: getAuthHeaders(),
-      });
+      const response = await fetchWithAuthRetry(`${API_BASE_URL}/chat-logs/${chatLogId}/status`);
       return handleResponse<{
         chat_log_id: string;
         status: ProcessingStatus;

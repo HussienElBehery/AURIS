@@ -6,82 +6,103 @@ logger = logging.getLogger(__name__)
 
 class RecommendationAgent:
     """
-    Simplified recommendation agent that works with Ollama.
+    Recommendation agent that uses transcript, evaluation summary, and analysis summary to generate actionable feedback.
     """
     
     def __init__(self):
         self.name = "recommendation_agent"
     
-    async def generate_recommendations(self, transcript: List[Dict[str, str]]) -> Dict[str, Any]:
+    async def generate_recommendations(self, transcript: List[Dict[str, str]], evaluation_summary: str, analysis_summary: str) -> Dict[str, Any]:
         """
-        Generate recommendations based on a chat conversation using Ollama.
-        
+        Generate recommendations based on a chat conversation, evaluation summary, and analysis summary using Ollama.
         Args:
             transcript: List of messages with 'sender' and 'text' keys
-            
+            evaluation_summary: String summary from evaluation agent
+            analysis_summary: String summary from analysis agent
         Returns:
             Dictionary containing recommendation results
         """
         try:
-            # Check if Ollama is running
             if not ollama_service.is_ollama_running():
                 return {
                     "error_message": "Ollama is not running",
-                    "recommendations": None
+                    "recommendation": None
                 }
-            
-            # Get available models
             available_models = ollama_service.get_available_models()
             if not available_models:
                 return {
                     "error_message": "No models available in Ollama",
-                    "recommendations": None
+                    "recommendation": None
                 }
-            
-            # Use the first available model
             model_name = available_models[0]["name"]
-            
-            # Format transcript for recommendations
             transcript_text = self._format_transcript(transcript)
-            
-            # Create recommendation prompt
+            # Create prompt
             recommendation_prompt = f"""
-            Based on this customer service conversation, provide:
-            1. Specific recommendations for the agent
-            2. Training suggestions
-            3. Process improvements
-            4. Best practices to follow
-            5. Areas for skill development
-            
-            Conversation:
-            {transcript_text}
-            
-            Please provide actionable recommendations.
-            """
-            
-            # Generate recommendations using Ollama
+You are a customer service coaching agent. Given the following:
+- Conversation transcript
+- Evaluation summary
+- Analysis summary
+
+Your job is to:
+1. Identify up to 2-3 short agent messages that could be improved. For each, provide:
+   - The original_text (the problematic part, short)
+   - A suggested_text (a short, improved rewrite)
+2. Provide a long_term_coaching string with a few actionable suggestions for the agent, based on the summaries.
+
+Respond ONLY in this JSON format:
+{{
+  "recommendation": {{
+    "specific_feedback": [
+      {{"original_text": "...", "suggested_text": "..."}},
+      ...
+    ],
+    "long_term_coaching": "..."
+  }}
+}}
+
+---
+TRANSCRIPT:
+{transcript_text}
+
+EVALUATION SUMMARY:
+{evaluation_summary}
+
+ANALYSIS SUMMARY:
+{analysis_summary}
+"""
             response = ollama_service.test_generation(model_name, recommendation_prompt)
-            
             if response.startswith("Error"):
                 return {
                     "error_message": response,
-                    "recommendations": None
+                    "recommendation": None
                 }
-            
-            return {
-                "recommendations": {
-                    "suggestions": response,
+            import json
+            try:
+                cleaned = response.strip()
+                json_start = cleaned.find('{')
+                json_end = cleaned.rfind('}') + 1
+                if json_start != -1 and json_end > json_start:
+                    json_str = cleaned[json_start:json_end]
+                    data = json.loads(json_str)
+                else:
+                    data = json.loads(cleaned)
+                rec = data.get("recommendation", {})
+                return {
+                    "recommendation": rec,
                     "model_used": model_name,
-                    "agent": self.name
-                },
-                "error_message": None
-            }
-            
+                    "agent": self.name,
+                    "error_message": None
+                }
+            except Exception as e:
+                return {
+                    "error_message": f"Failed to parse recommendation JSON: {str(e)}",
+                    "recommendation": None
+                }
         except Exception as e:
             logger.error(f"Error in recommendation agent: {e}")
             return {
                 "error_message": str(e),
-                "recommendations": None
+                "recommendation": None
             }
     
     def _format_transcript(self, transcript: List[Dict[str, str]]) -> str:

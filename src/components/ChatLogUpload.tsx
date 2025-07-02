@@ -2,451 +2,227 @@ import React, { useState, useRef, useEffect } from 'react';
 import { api } from '../services/api';
 import { ChatLog, ProcessingStatus } from '../types';
 import { useUpload } from '../contexts/UploadContext';
+import { CheckCircle, XCircle, Upload, Loader2, Database } from 'lucide-react';
 
-interface ChatLogUploadProps {
-  onUploadSuccess?: (chatLog: ChatLog) => void;
-  onProcessingComplete?: (chatLogId: string) => void;
-}
+const getAgentModels = () => {
+  try {
+    return JSON.parse(localStorage.getItem('agentModels') || '{}');
+  } catch {
+    return {};
+  }
+};
 
-const ChatLogUpload: React.FC<ChatLogUploadProps> = ({ 
-  onUploadSuccess, 
-  onProcessingComplete 
-}) => {
-  const { uploadState, setUploadState } = useUpload();
-  const [settingDefault, setSettingDefault] = useState<string | null>(null);
+const ChatLogUpload: React.FC = () => {
+  const { uploadState, setUploadState, resetUploadState } = useUpload();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadedLogs, setUploadedLogs] = useState<ChatLog[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [statusMap, setStatusMap] = useState<Record<string, any>>({});
+  const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const pollIntervalRef = useRef<number | null>(null);
-  const [modelStatus, setModelStatus] = useState<any>(null);
-  const [modelStatusError, setModelStatusError] = useState<string | null>(null);
+  const pollIntervalRef = useRef<any>(null);
 
-  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const agentModels = getAgentModels();
 
-    if (!file.name.endsWith('.json')) {
-      setUploadState(prev => ({ ...prev, error: 'Please select a JSON file' }));
-      return;
-    }
+  // Step 1: Select file
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    setSelectedFile(file || null);
+    setError(null);
+  };
 
-    setUploadState(prev => ({ ...prev, isUploading: true, error: null }));
-
+  // Step 2: Upload file
+  const handleUpload = async () => {
+    if (!selectedFile) return;
+    setUploading(true);
+    setError(null);
     try {
-      // Support batch upload: backend returns an array of chat logs
-      const uploaded = await api.chatLogs.upload(file);
-      const uploadedLogs = Array.isArray(uploaded) ? uploaded : [uploaded];
-      setUploadState(prev => ({ 
-        ...prev, 
-        uploadedChatLog: uploadedLogs[0], // For legacy compatibility, keep the first one
-        isUploading: false 
-      }));
-      onUploadSuccess?.(uploadedLogs[0]);
-      // Start processing each chat log individually
-      for (const chatLog of uploadedLogs) {
-        await startProcessing(chatLog.id);
+      const logs = await api.chatLogs.upload(selectedFile);
+      const logsArray: ChatLog[] = Array.isArray(logs) ? logs : [logs];
+      setUploadedLogs(logsArray);
+      setUploading(false);
+      setProcessing(true);
+      // Start processing each chat log
+      for (const log of logsArray) {
+        await api.chatLogs.process(log.id);
       }
-    } catch (err: any) {
-      setUploadState(prev => ({ 
-        ...prev, 
-        error: err.message || 'Failed to upload file',
-        isUploading: false 
-      }));
-    }
-  };
-
-  const startProcessing = async (chatLogId: string) => {
-    setUploadState(prev => ({ 
-      ...prev, 
-      isProcessing: true, 
-      processingStatus: 'processing' 
-    }));
-
-    try {
-      await api.chatLogs.process(chatLogId);
-      
-      // Poll for status updates
-      pollIntervalRef.current = setInterval(async () => {
-        try {
-          const status = await api.chatLogs.getStatus(chatLogId);
-          setUploadState(prev => ({
-            ...prev,
-            processingStatus: status.status,
-            progress: status.progress,
-            errorMessages: status.error_messages,
-            details: status.details
-          }));
-
-          // Stop polling if all agents are completed or failed
-          const agentStatuses = Object.values(status.progress || {});
-          const allDone = agentStatuses.length > 0 && agentStatuses.every(s => s === 'completed' || s === 'failed');
-          if (status.status === 'completed' || status.status === 'failed' || allDone) {
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current);
-              pollIntervalRef.current = null;
-            }
-            setUploadState(prev => ({ ...prev, isProcessing: false }));
-            onProcessingComplete?.(chatLogId);
+      // Start polling status
+      pollIntervalRef.current = setInterval(() => {
+        logsArray.forEach(async (log: ChatLog) => {
+          try {
+            const status = await api.chatLogs.getStatus(log.id);
+            setStatusMap(prev => ({ ...prev, [log.id]: status }));
+          } catch (err: any) {
+            setStatusMap(prev => ({ ...prev, [log.id]: { error: err.message || 'Failed to get status' } }));
           }
-        } catch (err: any) {
-          console.error('Error polling status:', err);
-          if (pollIntervalRef.current) {
-            clearInterval(pollIntervalRef.current);
-            pollIntervalRef.current = null;
-          }
-          setUploadState(prev => ({ 
-            ...prev, 
-            isProcessing: false, 
-            error: 'Failed to get processing status' 
-          }));
-        }
-      }, 2000); // Poll every 2 seconds
-
-      // Stop polling after 10 minutes
-      setTimeout(() => {
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
-        }
-        if (uploadState.isProcessing) {
-          setUploadState(prev => ({ 
-            ...prev, 
-            isProcessing: false, 
-            error: 'Processing timeout - please check status manually' 
-          }));
-        }
-      }, 600000);
-
+        });
+      }, 2000);
     } catch (err: any) {
-      setUploadState(prev => ({ 
-        ...prev, 
-        isProcessing: false, 
-        error: err.message || 'Failed to start processing' 
-      }));
+      setError(err.message || 'Failed to upload file');
+      setUploading(false);
     }
   };
 
-  const handleRetry = () => {
-    if (uploadState.uploadedChatLog) {
-      startProcessing(uploadState.uploadedChatLog.id);
-    }
-  };
-
-  const handleCancel = () => {
-    // Clear polling interval
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
-    
-    // Reset to upload state
-    setUploadState({
-      isUploading: false,
-      isProcessing: false,
-      uploadedChatLog: null,
-      processingStatus: 'pending',
-      progress: {},
-      errorMessages: {},
-      error: null,
-    });
-    
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const handleNewUpload = () => {
-    // Clear polling interval
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
-    
-    setUploadState({
-      isUploading: false,
-      isProcessing: false,
-      uploadedChatLog: null,
-      processingStatus: 'pending',
-      progress: {},
-      errorMessages: {},
-      error: null,
-    });
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  // Cleanup on unmount
+  // Step 3: Polling completion
   useEffect(() => {
-    return () => {
-      if (pollIntervalRef.current) {
+    if (processing && uploadedLogs.length > 0) {
+      const allDone = uploadedLogs.every(log => {
+        const status = statusMap[log.id];
+        return status && ['completed', 'failed'].includes(status?.overall_status || status?.status);
+      });
+      if (allDone && pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+        setProcessing(false);
       }
+    }
+    // Cleanup on unmount
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
-  }, []);
+  }, [processing, uploadedLogs, statusMap]);
 
-  // Poll model status
-  useEffect(() => {
-    let interval: any = null;
-    const fetchModelStatus = async () => {
-      try {
-        const res = await fetch('/api/chat-logs/debug/model-status');
-        const data = await res.json();
-        setModelStatus(data);
-        setModelStatusError(null);
-      } catch (err: any) {
-        setModelStatusError('Failed to fetch model status');
-      }
-    };
-    fetchModelStatus();
-    interval = setInterval(fetchModelStatus, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // On mount, if uploadState.uploadedChatLog exists and status is not completed/failed, resume polling
-  useEffect(() => {
-    if (uploadState.uploadedChatLog && uploadState.processingStatus === 'processing') {
-      startProcessing(uploadState.uploadedChatLog.id);
-    }
-    // eslint-disable-next-line
-  }, []);
-
-  // Add a refresh status button
-  const handleRefreshStatus = async () => {
-    if (uploadState.uploadedChatLog) {
-      try {
-        const status = await api.chatLogs.getStatus(uploadState.uploadedChatLog.id);
-        setUploadState(prev => ({
-          ...prev,
-          processingStatus: status.status,
-          progress: status.progress,
-          errorMessages: status.error_messages,
-          details: status.details
-        }));
-      } catch (err: any) {
-        setUploadState(prev => ({ ...prev, error: 'Failed to refresh status' }));
-      }
-    }
+  // Step 4: Reset
+  const handleReset = () => {
+    setSelectedFile(null);
+    setUploadedLogs([]);
+    setStatusMap({});
+    setUploading(false);
+    setProcessing(false);
+    setError(null);
+    resetUploadState();
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const getStatusColor = (status: ProcessingStatus) => {
-    switch (status) {
-      case 'pending': return 'text-gray-500';
-      case 'processing': return 'text-blue-500';
-      case 'completed': return 'text-green-500';
-      case 'failed': return 'text-red-500';
-      default: return 'text-gray-500';
-    }
-  };
-
-  const getAgentStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending': return 'text-gray-500';
-      case 'processing': return 'text-blue-500';
-      case 'completed': return 'text-green-500';
-      case 'failed': return 'text-red-500';
-      default: return 'text-gray-500';
-    }
-  };
-
+  // UI
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-      <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
-        Upload Chat Log
-      </h2>
-
-      {!uploadState.uploadedChatLog ? (
+      <div className="flex justify-between items-center mb-2">
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Upload Chat Logs</h2>
+        <button
+          onClick={handleReset}
+          className="px-3 py-1 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600 text-xs ml-2"
+        >
+          Reset Upload
+        </button>
+      </div>
+      {/* Step 1: Select File */}
+      {!selectedFile && (
         <div className="space-y-4">
-          <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".json"
-              onChange={handleFileSelect}
-              className="hidden"
-              disabled={uploadState.isUploading}
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadState.isUploading}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {uploadState.isUploading ? 'Uploading...' : 'Select JSON File'}
-            </button>
-            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-              Upload a JSON file containing chat log data
-            </p>
-          </div>
-
-          {/* JSON Format Instructions */}
-          <div className="bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg p-6">
-            <h3 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center">
-              <svg className="w-5 h-5 mr-2 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              Expected JSON Format
-            </h3>
-            <div className="text-sm text-gray-700 dark:text-gray-300 space-y-3">
-              <p>The JSON file should contain a <code className="bg-gray-200 dark:bg-gray-600 px-2 py-1 rounded text-blue-600 dark:text-blue-400 font-mono">transcript</code> array with message objects:</p>
-              <div className="bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md p-4">
-                <pre className="text-xs overflow-x-auto text-gray-800 dark:text-gray-200 font-mono leading-relaxed">
-{`{
-  "transcript": [
-    {
-      "sender": "customer",
-      "text": "Message text here",
-      "timestamp": "2024-01-15T14:30:00" // Optional
-    },
-    {
-      "sender": "agent", 
-      "text": "Response text here"
-      // timestamp is optional - will use current time if not provided
-    }
-  ]
-}`}
-                </pre>
-              </div>
-              <div className="bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-400 dark:border-blue-500 p-3 rounded-r-md">
-                <h4 className="font-medium text-blue-800 dark:text-blue-200 mb-2">Required Fields:</h4>
-                <ul className="space-y-1 text-blue-700 dark:text-blue-300">
-                  <li className="flex items-center">
-                    <span className="w-2 h-2 bg-blue-400 dark:bg-blue-500 rounded-full mr-2"></span>
-                    <strong>sender:</strong> Must be "customer" or "agent"
-                  </li>
-                  <li className="flex items-center">
-                    <span className="w-2 h-2 bg-blue-400 dark:bg-blue-500 rounded-full mr-2"></span>
-                    <strong>text:</strong> The message content (required)
-                  </li>
-                  <li className="flex items-center">
-                    <span className="w-2 h-2 bg-blue-400 dark:bg-blue-500 rounded-full mr-2"></span>
-                    <strong>timestamp:</strong> Optional ISO format timestamp
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          {uploadState.error && (
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            onChange={handleFileChange}
+            className="hidden"
+            disabled={uploading || processing}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading || processing}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Upload className="w-4 h-4 inline mr-2" /> Select JSON File
+          </button>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            Upload a JSON file containing chat log data
+          </p>
+          {error && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4">
-              <p className="text-red-800 dark:text-red-200">{uploadState.error}</p>
+              <p className="text-red-800 dark:text-red-200">{error}</p>
             </div>
           )}
         </div>
-      ) : (
-        <div className="space-y-4">
-          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md p-4">
-            <h3 className="font-medium text-green-800 dark:text-green-200">
-              File uploaded successfully!
-            </h3>
-            <p className="text-sm text-green-700 dark:text-green-300 mt-1">
-              Interaction ID: {uploadState.uploadedChatLog.interaction_id}
-            </p>
-          </div>
-
-          <div className="border border-gray-200 dark:border-gray-700 rounded-md p-4">
-            <h3 className="font-medium text-gray-900 dark:text-white mb-3">
-              Processing Status
-            </h3>
-            
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Overall Status:
-                </span>
-                <span className={`text-sm font-medium ${getStatusColor(uploadState.processingStatus)}`}>
-                  {uploadState.processingStatus.charAt(0).toUpperCase() + uploadState.processingStatus.slice(1)}
-                </span>
-              </div>
-
-              {Object.entries(uploadState.progress).map(([agent, status]) => {
-                const details = uploadState.details?.[agent] || {};
-                return (
-                  <div key={agent} className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2">
-                    <span className="text-sm text-gray-600 dark:text-gray-400 capitalize">
-                      {agent.charAt(0).toUpperCase() + agent.slice(1)} Agent:
-                    </span>
-                    <span className={`text-sm font-medium ${getAgentStatusColor(status)}`}>
-                      {status.charAt(0).toUpperCase() + status.slice(1)}
-                      {details.model_name && (
-                        <span className="ml-2 text-xs text-blue-600 dark:text-blue-400">Model: {details.model_name}</span>
-                      )}
-                      {details.started_at && (
-                        <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">Started: {new Date(details.started_at).toLocaleTimeString()}</span>
-                      )}
-                      {details.finished_at && (
-                        <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">Finished: {new Date(details.finished_at).toLocaleTimeString()}</span>
-                      )}
-                      {details.estimated_time && (
-                        <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">Est. Time: {Math.round(details.estimated_time)}s</span>
-                      )}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-
-            {Object.keys(uploadState.errorMessages).length > 0 && (
-              <div className="mt-4 space-y-2">
-                <h4 className="text-sm font-medium text-red-700 dark:text-red-300">
-                  Errors:
-                </h4>
-                {Object.entries(uploadState.errorMessages).map(([agent, error]) => (
-                  <div key={agent} className="text-xs text-red-600 dark:text-red-400">
-                    <span className="font-medium capitalize">{agent}:</span> {error}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {uploadState.isProcessing && (
-              <div className="mt-4">
-                <div className="flex items-center space-x-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                  <span className="text-sm text-gray-600 dark:text-gray-400">
-                    Processing in progress...
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="flex space-x-3">
-            {uploadState.processingStatus === 'failed' && (
-              <button
-                onClick={handleRetry}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                Retry Processing
-              </button>
-            )}
-            {uploadState.isProcessing && (
-              <button
-                onClick={handleCancel}
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-              >
-                Cancel Processing
-              </button>
-            )}
+      )}
+      {/* Step 2: Uploading */}
+      {selectedFile && !uploadedLogs.length && (
+        <div className="flex flex-col items-center justify-center py-8">
+          {uploading ? (
+            <>
+              <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-2" />
+              <span className="text-blue-700 dark:text-blue-300 font-medium">Uploading file...</span>
+            </>
+          ) : (
             <button
-              onClick={handleNewUpload}
-              className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+              onClick={handleUpload}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 mt-4"
+              disabled={uploading}
             >
-              Upload New File
+              <Upload className="w-4 h-4 inline mr-2" /> Upload
             </button>
-          </div>
-
-          {modelStatus && (
-            <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-4 mb-4">
-              <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-2">Model Status</h4>
-              <pre className="text-xs text-gray-700 dark:text-gray-300 overflow-x-auto">{JSON.stringify(modelStatus, null, 2)}</pre>
-              {modelStatusError && <div className="text-red-600 text-xs">{modelStatusError}</div>}
+          )}
+          {error && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4 mt-4">
+              <p className="text-red-800 dark:text-red-200">{error}</p>
             </div>
           )}
-
+        </div>
+      )}
+      {/* Step 3: Processing Status */}
+      {uploadedLogs.length > 0 && (
+        <div className="space-y-6">
+          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md p-4">
+            <h3 className="font-medium text-green-800 dark:text-green-200">
+              Uploaded {uploadedLogs.length} chat log{uploadedLogs.length > 1 ? 's' : ''}!
+            </h3>
+          </div>
+          <div className="divide-y divide-gray-200 dark:divide-gray-700">
+            {uploadedLogs.map(log => {
+              const status = statusMap[log.id];
+              return (
+                <div key={log.id} className="py-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="font-medium text-gray-900 dark:text-white">{log.interaction_id}</span>
+                      <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">({log.id})</span>
+                    </div>
+                    <span className="text-sm font-medium">
+                      {status?.overall_status === 'completed' && <span className="text-green-600 flex items-center"><CheckCircle className="w-4 h-4 mr-1" /> Completed</span>}
+                      {status?.overall_status === 'failed' && <span className="text-red-600 flex items-center"><XCircle className="w-4 h-4 mr-1" /> Failed</span>}
+                      {(!status || status?.overall_status === 'processing' || status?.overall_status === 'pending') && <span className="text-blue-600 flex items-center"><Loader2 className="w-4 h-4 animate-spin mr-1" /> Processing</span>}
+                    </span>
+                  </div>
+                  {/* Per-agent status */}
+                  <div className="flex flex-wrap gap-4 mt-2">
+                    {['evaluation', 'analysis', 'recommendation'].map(agent => (
+                      <div key={agent} className="flex items-center gap-1 text-xs">
+                        <span className="capitalize text-gray-700 dark:text-gray-300">
+                          {agent}: <span className="text-gray-400">({agentModels[agent] || 'no model'})</span>
+                        </span>
+                        <span className={
+                          status?.progress?.[agent] === 'completed' ? 'text-green-600' :
+                          status?.progress?.[agent] === 'failed' ? 'text-red-600' :
+                          'text-blue-600'
+                        }>
+                          {status?.progress?.[agent] || 'pending'}
+                        </span>
+                        {status?.progress?.[agent] === 'completed' && (
+                          <CheckCircle className="w-4 h-4 text-green-500 ml-1" />
+                        )}
+                        {status?.progress?.[agent] === 'failed' && (
+                          <XCircle className="w-4 h-4 text-red-500 ml-1" />
+                        )}
+                        {status?.error_messages?.[agent] && (
+                          <span className="ml-1 text-red-500">({status.error_messages[agent]})</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {/* Step 4: Complete */}
+      {!processing && uploadedLogs.length > 0 && (
+        <div className="flex justify-center mt-6">
           <button
-            onClick={handleRefreshStatus}
-            className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-xs ml-2"
-            disabled={!uploadState.uploadedChatLog}
+            onClick={handleReset}
+            className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
           >
-            Refresh Status
+            Upload New File
           </button>
         </div>
       )}

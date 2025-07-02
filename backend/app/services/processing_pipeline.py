@@ -71,10 +71,14 @@ class ProcessingPipeline:
             
             logger.info(f"Using model: {model_name}")
             
-            # Process with evaluation agent first
-            logger.info("Starting evaluation agent...")
+            # EVALUATION AGENT
+            logger.info("Loading model for evaluation agent...")
+            ollama_service.load_model(model_name)
+            logger.info(f"Model loaded for evaluation: {model_name}")
             evaluation_result = await evaluation_agent.evaluate_chat(transcript, model_name)
-            
+            ollama_service.unload_model()
+            logger.info(f"Model unloaded after evaluation: {model_name}")
+
             if evaluation_result.get("error_message"):
                 results["agents"]["evaluation"] = {
                     "status": "failed",
@@ -89,11 +93,23 @@ class ProcessingPipeline:
                 }
                 logger.info("Evaluation agent completed successfully")
                 logger.info(f"Evaluation raw result: {json.dumps(evaluation_result['result'], indent=2)}")
-            
-            # Process with analysis agent (simplified for now)
-            logger.info("Starting analysis agent...")
+
+            # ANALYSIS AGENT
+            logger.info("Loading model for analysis agent...")
+            ollama_service.load_model(model_name)
+            logger.info(f"Model loaded for analysis: {model_name}")
             try:
                 analysis_result = await self._run_analysis_agent(transcript, model_name)
+                if analysis_result is None:
+                    analysis_result = {
+                        "key_issues": [],
+                        "highlights": [],
+                        "guidelines": [],
+                        "analysis_summary": "Analysis failed: No result returned.",
+                        "model_used": model_name,
+                        "agent": "analysis_agent",
+                        "error_message": "Analysis agent returned None."
+                    }
                 results["agents"]["analysis"] = {
                     "status": "completed",
                     "result": analysis_result
@@ -108,11 +124,18 @@ class ProcessingPipeline:
                     "error_message": error_msg
                 }
                 results["error_messages"]["analysis"] = error_msg
-            
-            # Process with recommendation agent (simplified for now)
-            logger.info("Starting recommendation agent...")
+            ollama_service.unload_model()
+            logger.info(f"Model unloaded after analysis: {model_name}")
+
+            # RECOMMENDATION AGENT
+            logger.info("Loading model for recommendation agent...")
+            ollama_service.load_model(model_name)
+            logger.info(f"Model loaded for recommendation: {model_name}")
             try:
-                recommendation_result = await self._run_recommendation_agent(transcript, model_name)
+                evaluation_summary = evaluation_result["result"].get("evaluation_summary") if evaluation_result.get("result") else ""
+                analysis_summary = analysis_result.get("analysis_summary") if analysis_result else ""
+                from .recommendation_agent import recommendation_agent
+                recommendation_result = await recommendation_agent.generate_recommendations(transcript, evaluation_summary, analysis_summary)
                 results["agents"]["recommendation"] = {
                     "status": "completed",
                     "result": recommendation_result
@@ -127,7 +150,9 @@ class ProcessingPipeline:
                     "error_message": error_msg
                 }
                 results["error_messages"]["recommendation"] = error_msg
-            
+            ollama_service.unload_model()
+            logger.info(f"Model unloaded after recommendation: {model_name}")
+
             # Determine overall status
             failed_agents = [agent for agent, data in results["agents"].items() if data["status"] == "failed"]
             if failed_agents:
@@ -141,9 +166,9 @@ class ProcessingPipeline:
             results["end_time"] = datetime.utcnow().isoformat()
             logger.info(f"Processing pipeline completed with status: {results['overall_status']}")
             
-            # Automatically unload the model after processing is complete
+            # Final safety: unload model at the end
             try:
-                logger.info(f"Auto-unloading model {model_name} after processing completion")
+                logger.info(f"Final auto-unloading model {model_name} after processing completion")
                 ollama_service.unload_model()
             except Exception as e:
                 logger.warning(f"Failed to auto-unload model after processing: {e}")

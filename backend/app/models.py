@@ -114,11 +114,9 @@ class Recommendation(Base):
     
     id = Column(String, primary_key=True, index=True)
     chat_log_id = Column(String, ForeignKey("chat_logs.id"), nullable=False)
-    original_message = Column(Text, nullable=True)
-    improved_message = Column(Text, nullable=True)
-    reasoning = Column(Text, nullable=True)
-    coaching_suggestions = Column(JSON, nullable=True)  # Array of coaching points
     error_message = Column(Text, nullable=True)
+    specific_feedback = Column(JSON, nullable=True)  # List of {original_text, suggested_text}
+    long_term_coaching = Column(Text, nullable=True)  # String for long-term coaching
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     

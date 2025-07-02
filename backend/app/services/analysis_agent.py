@@ -4,6 +4,15 @@ from typing import Dict, Any, List, Optional
 from .ollama_service import ollama_service
 
 logger = logging.getLogger(__name__)
+if not logger.hasHandlers():
+    logger.setLevel(logging.INFO)
+    log_dir = os.path.join(os.path.dirname(__file__), 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, 'analysis_agent.log')
+    file_handler = logging.FileHandler(log_path)
+    formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
 
 DEFAULT_GUIDELINES = [
     {
@@ -63,28 +72,40 @@ class AnalysisAgent:
                 f"- {g['guideline']}: {g['description']}" for g in guidelines_list
             ])
             analysis_prompt = f"""
-You are a customer service QA bot. Analyze the conversation and return JSON like:
+You are a customer service QA bot. Analyze the conversation and return ONLY valid JSON with these exact keys:
+- "key_issues": list of short strings
+- "positive_highlights": list of short strings
+- "guideline_adherence": list of objects with keys: guideline, status (Passed/Failed), details
+
+Example:
 {{
-  "key_issues": ["short issue 1", ...],
-  "positive_highlights": ["short highlight 1", ...],
+  "key_issues": ["Agent did not acknowledge frustration", "No alternative solution offered"],
+  "positive_highlights": ["Agent responded promptly", "Polite closing"],
   "guideline_adherence": [
-    {{"guideline": "<name>", "status": "Passed" or "Failed", "details": "one-line reason"}}, ...
+    {{"guideline": "Acknowledge and Empathize", "status": "Passed", "details": "Agent expressed understanding."}},
+    {{"guideline": "Set Clear Expectations", "status": "Failed", "details": "No clear next steps provided."}}
   ]
 }}
+
 Guidelines:
 {guidelines_str}
+
 Rules:
-- Always include all guidelines above in guideline_adherence. If you can't judge one, set status to "Failed" and details to "Not provided by model.".
+- Always include ALL keys above, even if empty.
+- If you can't judge a guideline, set status to "Failed" and details to "Not provided by model.".
 - key_issues and positive_highlights must each have at least 1 item (never both empty).
 - Only include agent-related points.
-- Respond with valid JSON only.
+- Respond with valid JSON only. Do not include any explanation or text outside the JSON.
+
 Conversation:
 {transcript_text}
 """
             max_retries = 3
             for attempt in range(max_retries):
                 response = ollama_service.test_generation(model_name, analysis_prompt)
+                logger.info(f"Raw model response (attempt {attempt+1}): {response}")
                 parsed = self._parse_response(response, guidelines_list)
+                logger.info(f"Parsed model response (attempt {attempt+1}): {parsed}")
                 if parsed is not None:
                     # Check if both arrays are empty
                     if parsed["key_issues"] or parsed["highlights"]:
@@ -95,10 +116,12 @@ Conversation:
                         return parsed
                 # else: both are empty, retry
             # If we get here, all attempts failed
-            return self._fallback_result("Model failed to provide key issues or highlights after retries.", guidelines_list)
+            return self._fallback_result(f"Model failed to provide key issues or highlights after retries. Last raw response: {response}", guidelines_list)
         except Exception as e:
             logger.error(f"Error in analysis agent: {e}")
             return self._fallback_result(str(e), guidelines)
+        # Final fallback: always return a dict
+        return self._fallback_result("Unknown error in analysis agent.", guidelines)
 
     def _parse_response(self, response: str, guidelines: List[Dict[str, str]]) -> Optional[Dict[str, Any]]:
         import json
@@ -111,12 +134,31 @@ Conversation:
                 data = json.loads(json_str)
             else:
                 data = json.loads(cleaned)
+            # Accept both 'positive_highlights' and 'highlights'
+            if 'positive_highlights' in data:
+                highlights = data['positive_highlights']
+            elif 'highlights' in data:
+                highlights = data['highlights']
+            else:
+                highlights = []
+            # Accept both 'guideline_adherence' and common typo 'guideline_adherencce'
+            guideline_key = None
+            if 'guideline_adherence' in data:
+                guideline_key = 'guideline_adherence'
+            elif 'guideline_adherencce' in data:
+                guideline_key = 'guideline_adherencce'
+                logger.warning("Model output contained typo 'guideline_adherencce'; auto-correcting to 'guideline_adherence'.")
+            else:
+                guideline_key = None
             # Validate structure
             if not isinstance(data, dict):
                 return None
-            for key in ["key_issues", "positive_highlights", "guideline_adherence"]:
-                if key not in data:
-                    return None
+            if 'key_issues' not in data:
+                return None
+            if not ('positive_highlights' in data or 'highlights' in data):
+                return None
+            if not guideline_key:
+                return None
             def to_str_list(lst):
                 result = []
                 for item in lst:
@@ -128,12 +170,12 @@ Conversation:
                         result.append(str(item))
                 return result
             key_issues = to_str_list(data["key_issues"])
-            highlights = to_str_list(data["positive_highlights"])
+            highlights = to_str_list(highlights)
             # Ensure all default guidelines are present
             default_names = set(g["guideline"] for g in guidelines)
             guidelines_out = []
             found_names = set()
-            for g in data["guideline_adherence"]:
+            for g in data[guideline_key]:
                 if isinstance(g, dict):
                     name = g.get("guideline", "Unknown")
                     found_names.add(name)
@@ -153,7 +195,7 @@ Conversation:
                 if g["guideline"] not in found_names:
                     guidelines_out.append({
                         "name": g["guideline"],
-                        "passed": "Unknown",
+                        "passed": False,
                         "description": "Unknown"
                     })
             return {
@@ -162,44 +204,8 @@ Conversation:
                 "guidelines": guidelines_out
             }
         except Exception as e:
-            logger.error(f"Failed to parse analysis response: {e}")
-            # Try to salvage summary and guidelines if possible
-            try:
-                data = json.loads(cleaned)
-                def to_str_list(lst):
-                    result = []
-                    for item in lst:
-                        if isinstance(item, dict) and "text" in item:
-                            result.append(str(item["text"]))
-                        elif isinstance(item, str):
-                            result.append(item)
-                        else:
-                            result.append(str(item))
-                    return result
-                key_issues = to_str_list(data.get("key_issues", []))
-                highlights = to_str_list(data.get("positive_highlights", []))
-                guidelines_out = []
-                for g in data.get("guideline_adherence", []):
-                    if isinstance(g, dict):
-                        guidelines_out.append({
-                            "name": g.get("guideline", "Unknown"),
-                            "passed": g.get("status") == "Passed",
-                            "description": g.get("details", "")
-                        })
-                    else:
-                        guidelines_out.append({
-                            "name": str(g),
-                            "passed": False,
-                            "description": "Invalid guideline format."
-                        })
-                return {
-                    "key_issues": key_issues,
-                    "highlights": highlights,
-                    "guidelines": guidelines_out
-                }
-            except Exception as e2:
-                logger.error(f"Failed to salvage analysis response: {e2}")
-                return None
+            logger.error(f"Failed to parse analysis response: {e}. Raw response: {response}")
+            return None
 
     def _fallback_result(self, error_message: str, guidelines: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         guidelines_list = self.get_guidelines(guidelines)

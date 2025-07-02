@@ -145,20 +145,16 @@ class AnalysisResponse(BaseModel):
 # Recommendation schemas
 class RecommendationCreate(BaseModel):
     chat_log_id: str
-    original_message: Optional[str] = None
-    improved_message: Optional[str] = None
-    reasoning: Optional[str] = None
-    coaching_suggestions: Optional[List[str]] = None
     error_message: Optional[str] = None
+    specific_feedback: Optional[List[Dict[str, str]]] = None
+    long_term_coaching: Optional[str] = None
 
 class RecommendationResponse(BaseModel):
     id: str
     chat_log_id: str
-    original_message: Optional[str] = None
-    improved_message: Optional[str] = None
-    reasoning: Optional[str] = None
-    coaching_suggestions: Optional[List[str]] = None
     error_message: Optional[str] = None
+    specific_feedback: Optional[List[Dict[str, str]]] = None
+    long_term_coaching: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     

@@ -40,21 +40,29 @@ export const UploadProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   // On mount, load last chat log ID and status from localStorage
   React.useEffect(() => {
     const lastId = localStorage.getItem(UPLOAD_CHATLOG_KEY);
-    const lastStatus = localStorage.getItem(UPLOAD_STATUS_KEY);
+    const lastStatus = localStorage.getItem(UPLOAD_STATUS_KEY) as ProcessingStatus | null;
     if (lastId) {
-      setUploadState(prev => ({
-        ...prev,
-        uploadedChatLog: lastId ? {
-          id: lastId,
-          interaction_id: prev.uploadedChatLog?.interaction_id || '',
-          transcript: [],
-          status: (lastStatus as ProcessingStatus) || 'pending',
-          uploaded_by: '',
-          created_at: '',
-          updated_at: ''
-        } : null,
-        processingStatus: (lastStatus as ProcessingStatus) || 'pending',
-      }));
+      // Only restore if status is 'processing'
+      if (lastStatus === 'processing') {
+        setUploadState(prev => ({
+          ...prev,
+          uploadedChatLog: {
+            id: lastId,
+            interaction_id: prev.uploadedChatLog?.interaction_id || '',
+            transcript: [],
+            status: lastStatus,
+            uploaded_by: '',
+            created_at: '',
+            updated_at: ''
+          },
+          processingStatus: lastStatus,
+        }));
+      } else {
+        // Reset if not processing
+        setUploadState(initialUploadState);
+        localStorage.removeItem(UPLOAD_CHATLOG_KEY);
+        localStorage.removeItem(UPLOAD_STATUS_KEY);
+      }
     }
   }, []);
 

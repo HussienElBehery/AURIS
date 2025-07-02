@@ -156,10 +156,26 @@ const AnalysisPage: React.FC = () => {
 
   // UI rendering
   if (loading) {
-    return <div className="p-6 text-center text-lg">Loading analysis data...</div>;
+    return (
+      <div className="flex flex-col items-center justify-center h-64">
+        <Loader2 className="w-10 h-10 animate-spin text-blue-600 mb-4" />
+        <div className="text-lg text-gray-700 dark:text-gray-200">Loading analysis data...</div>
+      </div>
+    );
   }
   if (error) {
-    return <div className="p-6 text-center text-red-600">{error}</div>;
+    return (
+      <div className="flex flex-col items-center justify-center h-64">
+        <AlertTriangle className="w-10 h-10 text-red-500 mb-4" />
+        <div className="text-lg text-red-700 dark:text-red-300 mb-2">{error}</div>
+        <button
+          onClick={handleRefreshAnalyses}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg mt-2"
+        >
+          Retry
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -180,12 +196,6 @@ const AnalysisPage: React.FC = () => {
           <span>{loading ? 'Loading...' : 'Refresh'}</span>
         </button>
       </div>
-
-      {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4">
-          <p className="text-red-800 dark:text-red-200">{error}</p>
-        </div>
-      )}
 
       {/* Guidelines Editor Modal */}
       {editingGuidelines && (

@@ -12,24 +12,6 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-def setup_sqlite():
-    """Set up SQLite database (default for development)."""
-    print("🗄️  Setting up SQLite database...")
-    
-    try:
-        from app.database import engine
-        from app.models import Base
-        
-        # Create all tables
-        Base.metadata.create_all(bind=engine)
-        print("✅ SQLite database initialized successfully!")
-        print("📁 Database file: auris.db")
-        
-        return True
-    except Exception as e:
-        print(f"❌ Failed to initialize SQLite database: {e}")
-        return False
-
 def setup_postgresql():
     """Set up PostgreSQL database (optional for production)."""
     print("🗄️  Setting up PostgreSQL database...")
@@ -122,30 +104,16 @@ def main():
     print("🔧 AURIS Database Setup")
     print("=" * 40)
     
-    # Check if user wants PostgreSQL or SQLite
-    db_type = os.getenv("DATABASE_TYPE", "sqlite").lower()
-    
-    if db_type == "postgresql":
-        print("🐘 Using PostgreSQL database")
-        if not setup_postgresql():
-            print("⚠️  Falling back to SQLite...")
-            db_type = "sqlite"
-    
-    if db_type == "sqlite":
-        print("💾 Using SQLite database (recommended for development)")
-        # SQLite doesn't need special setup, just create tables
-        pass
-    
-    # Create tables
-    if create_tables():
+    print("🐘 Using PostgreSQL database")
+    if not setup_postgresql():
+        print("\n❌ Database setup failed!")
+        sys.exit(1)
+    else:
         print("\n🎉 Database setup completed successfully!")
         print("\nNext steps:")
         print("1. Start the backend server: uvicorn app.main:app --reload --port 3001")
         print("2. Start the frontend: npm run dev")
         print("3. Access the application at http://localhost:5173")
-    else:
-        print("\n❌ Database setup failed!")
-        sys.exit(1)
 
 if __name__ == "__main__":
     main() 

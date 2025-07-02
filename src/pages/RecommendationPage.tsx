@@ -1,282 +1,93 @@
-import React, { useState } from 'react';
-import { Lightbulb, ArrowRight, BookOpen, Filter, User, Database } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Lightbulb, BookOpen, Database } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { MOCK_CHATLOGS, MOCK_EVALUATIONS, MOCK_AGENTS } from '../data/mockData';
+import { api } from '../services/api';
+import { Recommendation, SpecificFeedbackItem } from '../types';
 
 const RecommendationPage: React.FC = () => {
   const { user } = useAuth();
-  const [selectedChat, setSelectedChat] = useState<string>('');
+  const [selectedChat, setSelectedChat] = useState<string>('all');
   const [selectedAgent, setSelectedAgent] = useState<string>('all');
+  const [chatLogs, setChatLogs] = useState<any[]>([]);
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Check if user is a demo user
   const isDemoUser = localStorage.getItem('token') === 'demo-token';
 
-  const userChats = isDemoUser 
-    ? (user?.role === 'manager' 
-        ? MOCK_CHATLOGS 
-        : MOCK_CHATLOGS.filter(chat => chat.agentId === user?.id))
-    : []; // Empty array for official users
+  // Load chat logs and recommendations
+  useEffect(() => {
+    if (!isDemoUser) {
+      loadData();
+    }
+  }, [isDemoUser]);
 
-  const userEvaluations = isDemoUser 
-    ? MOCK_EVALUATIONS.filter(evaluation => {
-        const chat = userChats.find(c => c.id === evaluation.chatLogId);
-        return chat !== undefined && evaluation.recommendation;
-      })
-    : []; // Empty array for official users
+  const loadData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const logs = await api.chatLogs.getAll();
+      setChatLogs(logs);
+      const allRecs: Recommendation[] = [];
+      if (user?.role === 'manager') {
+        // Managers can see all recommendations
+        // (Assume you have an endpoint to get all recommendations, otherwise fetch per chat)
+        for (const log of logs) {
+          try {
+            const rec = await api.recommendations.getByChatLogId(log.id);
+            if (rec) allRecs.push(rec);
+          } catch {}
+        }
+      } else {
+        // Agents see their own recommendations
+        const agentId = user?.agentId || (user as any)?.agent_id;
+        if (agentId) {
+          for (const log of logs.filter(l => l.agent_id === agentId)) {
+            try {
+              const rec = await api.recommendations.getByChatLogId(log.id);
+              if (rec) allRecs.push(rec);
+            } catch {}
+          }
+        }
+      }
+      setRecommendations(allRecs);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const filteredEvaluations = userEvaluations.filter(evaluation => {
-    const chat = userChats.find(c => c.id === evaluation.chatLogId);
+  // Filtering logic
+  const filteredChats = chatLogs.filter(chat => {
+    if (user?.role === 'manager' && selectedAgent !== 'all') {
+      if (chat.agent_id !== selectedAgent) return false;
+    }
+    return true;
+  });
+
+  const filteredRecommendations = recommendations.filter(rec => {
+    const chat = chatLogs.find(c => c.id === rec.chatLogId);
     if (!chat) return false;
-    
-    const matchesChat = !selectedChat || evaluation.chatLogId === selectedChat;
-    const matchesAgent = selectedAgent === 'all' || chat.agentId === selectedAgent;
-    
+    const matchesChat = selectedChat === 'all' || rec.chatLogId === selectedChat;
+    const matchesAgent = selectedAgent === 'all' || chat.agent_id === selectedAgent;
     return matchesChat && matchesAgent;
   });
 
-  // Set default selected chat if none selected
-  React.useEffect(() => {
-    if (!selectedChat && filteredEvaluations.length > 0) {
-      setSelectedChat(filteredEvaluations[0].chatLogId);
-    }
-  }, [filteredEvaluations, selectedChat]);
+  const currentRecommendation = selectedChat !== 'all'
+    ? filteredRecommendations.find(r => r.chatLogId === selectedChat)
+    : null;
 
-  const currentRecommendation = filteredEvaluations.find(e => e.chatLogId === selectedChat)?.recommendation;
-  const currentChat = userChats.find(c => c.id === selectedChat);
-
-  // Aggregate coaching suggestions
-  const allCoaching = filteredEvaluations
-    .flatMap(evaluation => evaluation.recommendation?.coaching || [])
-    .reduce((acc, coaching) => {
-      acc[coaching] = (acc[coaching] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-
-  const topCoaching = Object.entries(allCoaching)
-    .sort(([,a], [,b]) => b - a)
-    .slice(0, 8);
-
-  // Show demo notice for demo users
-  if (isDemoUser) {
-    return (
-      <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Recommendations</h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">
-              AI-powered suggestions for improved customer service
-            </p>
-          </div>
-          <div className="bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-200 px-3 py-1 rounded-full text-sm font-medium">
-            Demo Mode
-          </div>
-        </div>
-
-        {/* Filters */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Select Chat
-              </label>
-              <select
-                value={selectedChat}
-                onChange={(e) => setSelectedChat(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              >
-                <option value="">Select a chat...</option>
-                {userChats.filter(chat => userEvaluations.some(e => e.chatLogId === chat.id)).map(chat => (
-                  <option key={chat.id} value={chat.id}>
-                    {chat.id} - {chat.agentName} ({new Date(chat.date).toLocaleDateString()})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {user?.role === 'manager' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Filter by Agent
-                </label>
-                <select
-                  value={selectedAgent}
-                  onChange={(e) => setSelectedAgent(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                >
-                  <option value="all">All Agents</option>
-                  {MOCK_AGENTS.map(agent => (
-                    <option key={agent.id} value={agent.id}>{agent.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {currentRecommendation && selectedChat ? (
-          <div className="space-y-6">
-            {/* Side-by-side Comparison */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
-                  <Lightbulb className="w-5 h-5 mr-2 text-yellow-600" />
-                  Message Improvement for Chat {selectedChat}
-                  {currentChat && user?.role === 'manager' && (
-                    <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">
-                      • Agent: {currentChat.agentName}
-                    </span>
-                  )}
-                </h2>
-              </div>
-              <div className="p-6">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Original Message */}
-                  <div className="space-y-4">
-                    <div className="flex items-center space-x-2">
-                      <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-                      <h3 className="font-medium text-gray-900 dark:text-white">Original Message</h3>
-                    </div>
-                    <div className="p-4 bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 rounded-r-lg">
-                      <p className="text-gray-700 dark:text-gray-300">{currentRecommendation.original}</p>
-                    </div>
-                  </div>
-
-                  {/* Arrow */}
-                  <div className="hidden lg:flex items-center justify-center">
-                    <ArrowRight className="w-8 h-8 text-gray-400" />
-                  </div>
-
-                  {/* Improved Message */}
-                  <div className="space-y-4">
-                    <div className="flex items-center space-x-2">
-                      <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-                      <h3 className="font-medium text-gray-900 dark:text-white">Improved Message</h3>
-                    </div>
-                    <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 border-l-4 border-emerald-500 rounded-r-lg">
-                      <p className="text-gray-700 dark:text-gray-300">{currentRecommendation.improved}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Reasoning */}
-                <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                  <h4 className="font-medium text-blue-900 dark:text-blue-200 mb-2">Why This Improvement Works:</h4>
-                  <p className="text-blue-800 dark:text-blue-300">{currentRecommendation.reasoning}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Specific Coaching for Current Chat */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
-                  <BookOpen className="w-5 h-5 mr-2 text-purple-600" />
-                  Coaching Suggestions for This Chat
-                </h2>
-              </div>
-              <div className="p-6">
-                <div className="grid gap-4">
-                  {currentRecommendation.coaching.map((suggestion, index) => (
-                    <div key={index} className="flex items-start space-x-3 p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                      <div className="w-6 h-6 bg-purple-600 text-white rounded-full flex items-center justify-center flex-shrink-0 text-sm font-medium">
-                        {index + 1}
-                      </div>
-                      <p className="text-purple-900 dark:text-purple-200">{suggestion}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-            <div className="p-12 text-center">
-              <Lightbulb className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                Select a Chat for Recommendations
-              </h3>
-              <p className="text-gray-600 dark:text-gray-400">
-                Choose a chat from the dropdown above to view AI-powered improvement suggestions.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Long-term Coaching Section */}
-        {topCoaching.length > 0 && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
-                <BookOpen className="w-5 h-5 mr-2 text-blue-600" />
-                {user?.role === 'manager' ? 'Team' : 'Your'} Long-Term Coaching Opportunities
-              </h2>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                Common improvement areas identified across multiple interactions
-              </p>
-            </div>
-            <div className="p-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                {topCoaching.map(([coaching, count]) => (
-                  <div key={coaching} className="flex items-center justify-between p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                    <div className="flex items-start space-x-3">
-                      <User className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
-                      <p className="text-blue-900 dark:text-blue-200">{coaching}</p>
-                    </div>
-                    <span className="text-xs bg-blue-200 dark:bg-blue-800 text-blue-800 dark:text-blue-200 px-2 py-1 rounded-full ml-4">
-                      {count} times
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Available Recommendations List */}
-        {filteredEvaluations.length > 1 && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Available Recommendations ({filteredEvaluations.length})
-              </h2>
-            </div>
-            <div className="divide-y divide-gray-200 dark:divide-gray-700">
-              {filteredEvaluations.map((evaluation) => {
-                const chat = userChats.find(c => c.id === evaluation.chatLogId);
-                return (
-                  <div key={evaluation.id} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium text-gray-900 dark:text-white">
-                          Chat {evaluation.chatLogId}
-                        </p>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">
-                          {user?.role === 'manager' && chat ? `${chat.agentName} • ` : ''}
-                          {chat ? new Date(chat.date).toLocaleDateString() : ''}
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => setSelectedChat(evaluation.chatLogId)}
-                        className={`px-3 py-1 rounded-lg text-sm transition-colors ${
-                          selectedChat === evaluation.chatLogId
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/70'
-                        }`}
-                      >
-                        {selectedChat === evaluation.chatLogId ? 'Selected' : 'View'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-    );
+  // UI rendering
+  if (loading) {
+    return <div className="p-6 text-center text-lg flex items-center justify-center"><Database className="w-8 h-8 animate-spin text-blue-600 mr-2" /> Loading recommendations...</div>;
+  }
+  if (error) {
+    return <div className="p-6 text-center text-red-600">{error}</div>;
   }
 
-  // For official users, show real data interface
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -286,49 +97,171 @@ const RecommendationPage: React.FC = () => {
             AI-powered suggestions for improved customer service
           </p>
         </div>
+        <button 
+          onClick={loadData}
+          disabled={loading}
+          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+        >
+          <Database className="w-4 h-4" />
+          <span>{loading ? 'Loading...' : 'Refresh'}</span>
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Select Chat
+            </label>
+            <select
+              value={selectedChat}
+              onChange={(e) => setSelectedChat(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+            >
+              <option value="all">All Chats</option>
+              {filteredChats.map(chat => (
+                <option key={chat.id} value={chat.id}>
+                  {chat.interaction_id || chat.id} - {chat.agent_id} ({new Date(chat.created_at ?? '').toLocaleDateString()})
+                </option>
+              ))}
+            </select>
+          </div>
+          {user?.role === 'manager' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Filter by Agent
+              </label>
+              <select
+                value={selectedAgent}
+                onChange={(e) => setSelectedAgent(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              >
+                <option value="all">All Agents</option>
+                {Array.from(new Set(chatLogs.map(chat => chat.agent_id))).filter(Boolean).map(agentId => (
+                  <option key={agentId} value={agentId}>{agentId}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Empty State */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-        <div className="text-center py-12">
-          <Database className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No Recommendations Available</h3>
-          <p className="text-gray-600 dark:text-gray-400 mb-6">
-            AI-powered recommendations will appear here once you start using the system and have evaluated chat logs
-          </p>
-          <div className="flex justify-center space-x-4">
-            <button className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">
-              Upload Chat Logs
-            </button>
-            <button className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-              View Evaluations
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Placeholder Sections */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {filteredRecommendations.length === 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-          <div className="text-center py-8">
-            <Lightbulb className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Message Improvements</h3>
-            <p className="text-gray-600 dark:text-gray-400">
-              AI-powered message improvement suggestions will appear here
+          <div className="text-center py-12">
+            <Database className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No Recommendations Available</h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
+              AI-powered recommendations will appear here once you start using the system and have evaluated chat logs
             </p>
           </div>
         </div>
+      )}
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-          <div className="text-center py-8">
-            <BookOpen className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Coaching Suggestions</h3>
-            <p className="text-gray-600 dark:text-gray-400">
-              Personalized coaching recommendations will appear here
-            </p>
+      {/* All Chats: Summary List */}
+      {selectedChat === 'all' && filteredRecommendations.length > 0 && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Available Recommendations ({filteredRecommendations.length})
+            </h2>
+          </div>
+          <div className="divide-y divide-gray-200 dark:divide-gray-700">
+            {filteredRecommendations.map((rec) => {
+              const chat = chatLogs.find(c => c.id === rec.chatLogId);
+              return (
+                <div key={rec.id} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium text-gray-900 dark:text-white">
+                        Chat {chat?.interaction_id || rec.chatLogId}
+                      </p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        {user?.role === 'manager' && chat ? `${chat.agent_id} • ` : ''}
+                        {chat ? new Date(chat.created_at ?? '').toLocaleDateString() : ''}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setSelectedChat(rec.chatLogId)}
+                      className={`px-3 py-1 rounded-lg text-sm transition-colors ${
+                        selectedChat === rec.chatLogId
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/70'
+                      }`}
+                    >
+                      {selectedChat === rec.chatLogId ? 'Selected' : 'View'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Single Chat: Detailed Recommendation */}
+      {selectedChat !== 'all' && (
+        <div className="space-y-6">
+          {/* Specific Feedback List */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+                <Lightbulb className="w-5 h-5 mr-2 text-yellow-600" />
+                Message Improvements for Chat {selectedChat}
+                {user?.role === 'manager' && (
+                  <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">
+                    • Agent: {chatLogs.find(c => c.id === selectedChat)?.agent_id}
+                  </span>
+                )}
+              </h2>
+            </div>
+            <div className="p-6">
+              {currentRecommendation && currentRecommendation.specific_feedback && currentRecommendation.specific_feedback.length > 0 ? (
+                <div className="space-y-4">
+                  {currentRecommendation.specific_feedback.map((fb: SpecificFeedbackItem, idx: number) => (
+                    <div key={idx} className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                      <div className="p-4 bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 rounded-r-lg">
+                        <span className="block text-xs text-gray-500 mb-1">Original</span>
+                        <span className="text-gray-700 dark:text-gray-300">{fb.original_text}</span>
+                      </div>
+                      <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 border-l-4 border-emerald-500 rounded-r-lg">
+                        <span className="block text-xs text-gray-500 mb-1">Suggested</span>
+                        <span className="text-gray-700 dark:text-gray-300">{fb.suggested_text}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8">
+                  <Lightbulb className="w-10 h-10 text-gray-400 mb-2" />
+                  <span className="text-gray-500 dark:text-gray-400">No message improvements available.</span>
+                </div>
+              )}
+            </div>
+          </div>
+          {/* Long Term Coaching */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+                <BookOpen className="w-5 h-5 mr-2 text-purple-600" />
+                Long-Term Coaching Suggestions
+              </h2>
+            </div>
+            <div className="p-6">
+              {currentRecommendation && typeof currentRecommendation.long_term_coaching === 'string' && currentRecommendation.long_term_coaching ? (
+                <div className="text-purple-900 dark:text-purple-200 whitespace-pre-line">{currentRecommendation.long_term_coaching}</div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8">
+                  <BookOpen className="w-10 h-10 text-gray-400 mb-2" />
+                  <span className="text-gray-500 dark:text-gray-400">No long-term coaching suggestions available.</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

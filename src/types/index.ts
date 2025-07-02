@@ -79,6 +79,11 @@ export interface Analysis {
   updatedAt?: string;
 }
 
+export interface SpecificFeedbackItem {
+  original_text: string;
+  suggested_text: string;
+}
+
 export interface Recommendation {
   id: string;
   chatLogId: string;
@@ -89,6 +94,8 @@ export interface Recommendation {
   errorMessage?: string;
   createdAt?: string;
   updatedAt?: string;
+  specific_feedback?: SpecificFeedbackItem[];
+  long_term_coaching?: string;
 }
 
 export interface GuidelineResult {

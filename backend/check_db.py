@@ -8,6 +8,7 @@ import os
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
+from sqlalchemy import inspect
 
 # Load environment variables
 load_dotenv()
@@ -124,6 +125,23 @@ def auto_detect_database():
         print("🔍 Auto-detected: SQLite")
         return "sqlite"
 
+def print_recommendations_schema(engine):
+    inspector = inspect(engine)
+    columns = inspector.get_columns('recommendations')
+    print('Schema for recommendations table:')
+    for col in columns:
+        print(f"  {col['name']} ({col['type']})")
+
+def print_all_table_schemas(engine):
+    inspector = inspect(engine)
+    tables = inspector.get_table_names()
+    for table in tables:
+        print(f'Schema for {table} table:')
+        columns = inspector.get_columns(table)
+        for col in columns:
+            print(f"  {col['name']} ({col['type']})")
+        print()
+
 def main():
     """Main function."""
     print("🔍 AURIS Database Check")
@@ -148,5 +166,7 @@ def main():
     return success
 
 if __name__ == "__main__":
+    from app.database import engine
+    print_all_table_schemas(engine)
     success = main()
     sys.exit(0 if success else 1) 

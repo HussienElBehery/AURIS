@@ -11,6 +11,8 @@ from app.database import get_db, engine
 from app.models import User, Base
 from app.auth import generate_uuid
 from sqlalchemy import text
+import sqlalchemy as sa
+from sqlalchemy import inspect
 
 def migrate_add_agent_id():
     """Add agent_id column to users table and populate for existing agents"""
@@ -58,7 +60,17 @@ def migrate_add_agent_id():
     finally:
         db.close()
 
+def add_recommendation_columns(engine):
+    inspector = inspect(engine)
+    columns = [col['name'] for col in inspector.get_columns('recommendations')]
+    with engine.connect() as conn:
+        if 'specific_feedback' not in columns:
+            conn.execute(sa.text('ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS specific_feedback JSONB'))
+        if 'long_term_coaching' not in columns:
+            conn.execute(sa.text('ALTER TABLE recommendations ADD COLUMN IF NOT EXISTS long_term_coaching TEXT'))
+
 if __name__ == "__main__":
     print("Starting agent_id migration...")
     migrate_add_agent_id()
+    add_recommendation_columns(engine)
     print("Migration completed!") 

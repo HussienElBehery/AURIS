@@ -46,8 +46,17 @@ interface ModelStatusResponse {
   total_models: number;
 }
 
+const AGENTS = [
+  { key: 'analysis', label: 'Analysis Agent' },
+  { key: 'evaluation', label: 'Evaluation Agent' },
+  { key: 'recommendation', label: 'Recommendation Agent' },
+];
+
+const MODELS_CACHE_KEY = 'cachedModelsList';
+
 const ModelManager: React.FC = () => {
   const [modelStatus, setModelStatus] = useState<ModelStatusResponse | null>(null);
+  const [modelsLoadedFromCache, setModelsLoadedFromCache] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingModel, setLoadingModel] = useState<string | null>(null);
@@ -59,10 +68,23 @@ const ModelManager: React.FC = () => {
   const [testResponse, setTestResponse] = useState<string>("");
   const [testLoading, setTestLoading] = useState<boolean>(false);
   const [settingDefault, setSettingDefault] = useState<string | null>(null);
+  const [agentModels, setAgentModels] = useState<{ [key: string]: string }>(() => {
+    const saved = localStorage.getItem('agentModels');
+    return saved ? JSON.parse(saved) : {};
+  });
+  const [agentModelsLoaded, setAgentModelsLoaded] = useState(true);
 
-  // Load models immediately on component mount
+  // Load models from cache on mount for instant UI
   useEffect(() => {
-    fetchModelList();
+    const cached = localStorage.getItem(MODELS_CACHE_KEY);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        setModelStatus(parsed);
+        setModelsLoadedFromCache(true);
+      } catch {}
+    }
+    fetchModelList(); // Always refresh in background
   }, []);
 
   // Load system info separately and update every minute
@@ -71,6 +93,34 @@ const ModelManager: React.FC = () => {
     const interval = setInterval(fetchSystemInfo, 60000); // Update every minute
     return () => clearInterval(interval);
   }, []);
+
+  // Save models to cache whenever modelStatus changes (from API)
+  useEffect(() => {
+    if (modelStatus && !modelsLoadedFromCache) {
+      localStorage.setItem(MODELS_CACHE_KEY, JSON.stringify(modelStatus));
+    }
+  }, [modelStatus, modelsLoadedFromCache]);
+
+  // When models list changes, validate agent assignments
+  useEffect(() => {
+    if (!agentModelsLoaded) return; // Wait until agentModels are loaded
+    if (!modelStatus || !modelStatus.available_models || modelStatus.available_models.length === 0) return;
+    let changed = false;
+    const available = modelStatus.available_models.map(m => m.name);
+    const newAgentModels = { ...agentModels };
+    AGENTS.forEach(agent => {
+      if (agentModels[agent.key] && !available.includes(agentModels[agent.key])) {
+        newAgentModels[agent.key] = '';
+        changed = true;
+      }
+    });
+    if (changed) setAgentModels(newAgentModels);
+  }, [modelStatus, agentModelsLoaded]);
+
+  // Add back the useEffect to save agentModels to localStorage:
+  useEffect(() => {
+    localStorage.setItem('agentModels', JSON.stringify(agentModels));
+  }, [agentModels]);
 
   const fetchModelList = async () => {
     try {
@@ -91,6 +141,7 @@ const ModelManager: React.FC = () => {
           }
         }));
         setOllamaRunning(true);
+        setModelsLoadedFromCache(false); // Now using fresh data
       } else {
         setError('Failed to fetch model list');
         setOllamaRunning(false);
@@ -260,6 +311,10 @@ const ModelManager: React.FC = () => {
     }
   };
 
+  const handleAgentModelChange = (agentKey: string, modelName: string) => {
+    setAgentModels((prev) => ({ ...prev, [agentKey]: modelName }));
+  };
+
   return (
     <div className="max-w-7xl mx-auto p-6 bg-gray-50 dark:bg-gray-900 min-h-screen">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
@@ -414,6 +469,38 @@ const ModelManager: React.FC = () => {
           </div>
         </div>
 
+        {/* Agent Model Assignment */}
+        <div className="mb-8">
+          <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4">Agent Model Assignment</h2>
+          {(!modelStatus || !agentModelsLoaded) ? (
+            <div className="flex justify-center items-center h-20">
+              <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+              <span className="ml-2 text-gray-500">Loading agent assignments...</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {AGENTS.map(agent => (
+                <div key={agent.key} className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg border border-gray-200 dark:border-gray-600">
+                  <div className="mb-2 font-semibold text-gray-800 dark:text-gray-200">{agent.label}</div>
+                  {agentModels[agent.key] && !modelStatus?.available_models.some(m => m.name === agentModels[agent.key]) && (
+                    <div className="text-xs text-red-500 mb-1">Previously selected model is no longer available.</div>
+                  )}
+                  <select
+                    className="w-full p-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                    value={agentModels[agent.key] || ''}
+                    onChange={e => handleAgentModelChange(agent.key, e.target.value)}
+                  >
+                    <option value="">Select Model</option>
+                    {modelStatus?.available_models.map(model => (
+                      <option key={model.name} value={model.name}>{model.name}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Models Section */}
         <div>
           <div className="flex items-center justify-between mb-4">
@@ -458,11 +545,6 @@ const ModelManager: React.FC = () => {
                           Active
                         </span>
                       )}
-                      {modelStatus.default_model === model.name && (
-                        <span className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs px-2 py-1 rounded">
-                          Default
-                        </span>
-                      )}
                     </div>
                   </div>
                   
@@ -472,27 +554,11 @@ const ModelManager: React.FC = () => {
                     <div>Modified: {new Date(model.modified_at).toLocaleDateString()}</div>
                   </div>
                   
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setDefaultModel(model.name)}
-                      disabled={settingDefault === model.name || modelStatus.default_model === model.name}
-                      className="flex-1 px-3 py-2 bg-blue-600 dark:bg-blue-500 text-white text-sm rounded hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
-                    >
-                      {settingDefault === model.name ? (
-                        <>
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                          Setting...
-                        </>
-                      ) : modelStatus.default_model === model.name ? (
-                        'Default'
-                      ) : (
-                        'Set as Default'
-                      )}
-                    </button>
+                  <div>
                     <button
                       onClick={() => openTestModal(model.name)}
-                      disabled={loadingModel === model.name || settingDefault === model.name}
-                      className="px-3 py-2 bg-green-600 dark:bg-green-500 text-white text-sm rounded hover:bg-green-700 dark:hover:bg-green-600 disabled:opacity-50"
+                      disabled={loadingModel === model.name}
+                      className="w-full px-3 py-2 bg-green-600 dark:bg-green-500 text-white text-sm rounded hover:bg-green-700 dark:hover:bg-green-600 disabled:opacity-50 mt-3"
                     >
                       Test
                     </button>

@@ -318,7 +318,10 @@ async def get_analysis(
             id=analysis.id,
             chat_log_id=analysis.chat_log_id,
             agent_id=analysis.agent_id,
-            guidelines=analysis.guidelines,
+            guidelines=[
+                {**g, 'passed': bool(g.get('passed', False))} if isinstance(g, dict) else g
+                for g in (analysis.guidelines or [])
+            ] if analysis.guidelines else None,
             issues=analysis.issues,
             highlights=analysis.highlights,
             analysis_summary=analysis.analysis_summary,
@@ -345,7 +348,6 @@ async def get_recommendation(
         recommendation = db.query(Recommendation).filter(Recommendation.chat_log_id == chat_log_id).first()
         if not recommendation:
             raise HTTPException(status_code=404, detail="Recommendation not found")
-        
         return RecommendationResponse(
             id=recommendation.id,
             chat_log_id=recommendation.chat_log_id,
@@ -354,10 +356,11 @@ async def get_recommendation(
             reasoning=recommendation.reasoning,
             coaching_suggestions=recommendation.coaching_suggestions,
             error_message=recommendation.error_message,
+            specific_feedback=recommendation.specific_feedback,
+            long_term_coaching=recommendation.long_term_coaching,
             created_at=recommendation.created_at,
             updated_at=recommendation.updated_at
         )
-        
     except HTTPException:
         raise
     except Exception as e:
@@ -669,7 +672,9 @@ async def process_chat_log_background(
                             improved_message=result.get("improved_message"),
                             reasoning=result.get("reasoning"),
                             coaching_suggestions=result.get("coaching_suggestions"),
-                            error_message=result.get("error_message")
+                            error_message=result.get("error_message"),
+                            specific_feedback=result.get("recommendation", {}).get("specific_feedback"),
+                            long_term_coaching=result.get("recommendation", {}).get("long_term_coaching")
                         )
                         db.add(recommendation)
                 elif agent_data["status"] == "failed":
@@ -739,7 +744,10 @@ async def get_analyses_by_agent(
                 id=a.id,
                 chat_log_id=a.chat_log_id,
                 agent_id=a.agent_id,
-                guidelines=a.guidelines,
+                guidelines=[
+                    {**g, 'passed': bool(g.get('passed', False))} if isinstance(g, dict) else g
+                    for g in (a.guidelines or [])
+                ] if a.guidelines else None,
                 issues=a.issues,
                 highlights=a.highlights,
                 analysis_summary=a.analysis_summary,
@@ -766,7 +774,10 @@ async def get_all_analyses(
                 id=a.id,
                 chat_log_id=a.chat_log_id,
                 agent_id=a.agent_id,
-                guidelines=a.guidelines,
+                guidelines=[
+                    {**g, 'passed': bool(g.get('passed', False))} if isinstance(g, dict) else g
+                    for g in (a.guidelines or [])
+                ] if a.guidelines else None,
                 issues=a.issues,
                 highlights=a.highlights,
                 analysis_summary=a.analysis_summary,
