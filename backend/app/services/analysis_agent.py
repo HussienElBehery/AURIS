@@ -50,12 +50,13 @@ class AnalysisAgent:
     def get_guidelines(self, override: Optional[List[Dict[str, str]]] = None) -> List[Dict[str, str]]:
         return override if override is not None else get_default_guidelines()
 
-    async def analyze_chat(self, transcript: List[Dict[str, str]], guidelines: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+    async def analyze_chat(self, transcript: List[Dict[str, str]], guidelines: Optional[List[Dict[str, str]]] = None, model_name: Optional[str] = None) -> Dict[str, Any]:
         """
         Analyze a chat conversation using Ollama.
         Args:
             transcript: List of messages with 'sender' and 'text' keys
             guidelines: Optional list of guidelines to use (otherwise use default)
+            model_name: Name of the model to use (optional, will use first available if not provided)
         Returns:
             Dictionary containing analysis results
         """
@@ -65,7 +66,12 @@ class AnalysisAgent:
             available_models = ollama_service.get_available_models()
             if not available_models:
                 return self._fallback_result("No models available in Ollama", guidelines)
-            model_name = available_models[0]["name"]
+            # Use the provided model_name if available and valid, else fallback to first available
+            model_names = [model.get("name", "") for model in available_models]
+            if model_name and model_name in model_names:
+                selected_model = model_name
+            else:
+                selected_model = available_models[0]["name"]
             transcript_text = self._format_transcript(transcript)
             guidelines_list = self.get_guidelines(guidelines)
             guidelines_str = "\n".join([
@@ -102,19 +108,18 @@ Conversation:
 """
             max_retries = 3
             for attempt in range(max_retries):
-                response = ollama_service.test_generation(model_name, analysis_prompt)
+                response = ollama_service.test_generation(selected_model, analysis_prompt)
                 logger.info(f"Raw model response (attempt {attempt+1}): {response}")
                 parsed = self._parse_response(response, guidelines_list)
                 logger.info(f"Parsed model response (attempt {attempt+1}): {parsed}")
                 if parsed is not None:
                     # Check if both arrays are empty
                     if parsed["key_issues"] or parsed["highlights"]:
-                        parsed["model_used"] = model_name
+                        parsed["model_used"] = selected_model
                         parsed["agent"] = self.name
                         parsed["error_message"] = None
                         parsed["analysis_summary"] = self._generate_analysis_summary(parsed["guidelines"])
                         return parsed
-                # else: both are empty, retry
             # If we get here, all attempts failed
             return self._fallback_result(f"Model failed to provide key issues or highlights after retries. Last raw response: {response}", guidelines_list)
         except Exception as e:

@@ -10,6 +10,7 @@ interface AuthContextType {
   logout: () => void;
   isLoading: boolean;
   error: string | null;
+  shouldRedirect: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -34,6 +35,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [shouldRedirect, setShouldRedirect] = useState(false);
 
   useEffect(() => {
     const initializeAuth = async () => {
@@ -57,6 +59,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           localStorage.removeItem('token');
           localStorage.removeItem('refresh_token');
           localStorage.removeItem('auris_user');
+          setUser(null);
+          setShouldRedirect(true);
         }
       }
       setIsLoading(false);
@@ -129,6 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('token');
     localStorage.removeItem('refresh_token');
     localStorage.removeItem('auris_user');
+    setShouldRedirect(true);
   };
 
   return (
@@ -139,7 +144,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       demoLogin, 
       logout, 
       isLoading, 
-      error 
+      error,
+      shouldRedirect
     }}>
       {children}
     </AuthContext.Provider>

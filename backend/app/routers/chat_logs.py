@@ -173,21 +173,17 @@ async def get_processing_status(
     Get the processing status of a chat log.
     """
     try:
-        # Get chat log
         chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
         if not chat_log:
             raise HTTPException(status_code=404, detail="Chat log not found")
-        
-        # Get agent results
         evaluation = db.query(Evaluation).filter(Evaluation.chat_log_id == chat_log_id).first()
         analysis = db.query(Analysis).filter(Analysis.chat_log_id == chat_log_id).first()
         recommendation = db.query(Recommendation).filter(Recommendation.chat_log_id == chat_log_id).first()
-        
-        # Build progress status
         progress = {}
         error_messages = {}
         details = {}
-        
+        agents = {}
+        # Evaluation
         if evaluation:
             progress["evaluation"] = "completed" if not evaluation.error_message else "failed"
             if evaluation.error_message:
@@ -195,12 +191,25 @@ async def get_processing_status(
             details["evaluation"] = {
                 "started_at": getattr(evaluation, "created_at", None),
                 "finished_at": getattr(evaluation, "updated_at", None),
-                "estimated_time": (evaluation.updated_at - evaluation.created_at).total_seconds() if evaluation.created_at and evaluation.updated_at else None
+                "estimated_time": (evaluation.updated_at - evaluation.created_at).total_seconds() if evaluation.created_at and evaluation.updated_at else None,
+                "model_name": None,
+            }
+            agents["evaluation"] = {
+                "status": progress["evaluation"],
+                "result": {
+                    "coherence": evaluation.coherence,
+                    "relevance": evaluation.relevance,
+                    "politeness": evaluation.politeness,
+                    "resolution": evaluation.resolution,
+                    "reasoning": evaluation.reasoning,
+                    "evaluation_summary": evaluation.evaluation_summary,
+                    "error_message": evaluation.error_message
+                }
             }
         else:
             progress["evaluation"] = "pending"
             details["evaluation"] = {}
-        
+        # Analysis
         if analysis:
             progress["analysis"] = "completed" if not analysis.error_message else "failed"
             if analysis.error_message:
@@ -208,12 +217,23 @@ async def get_processing_status(
             details["analysis"] = {
                 "started_at": getattr(analysis, "created_at", None),
                 "finished_at": getattr(analysis, "updated_at", None),
-                "estimated_time": (analysis.updated_at - analysis.created_at).total_seconds() if analysis.created_at and analysis.updated_at else None
+                "estimated_time": (analysis.updated_at - analysis.created_at).total_seconds() if analysis.created_at and analysis.updated_at else None,
+                "model_name": None,
+            }
+            agents["analysis"] = {
+                "status": progress["analysis"],
+                "result": {
+                    "guidelines": analysis.guidelines,
+                    "issues": analysis.issues,
+                    "highlights": analysis.highlights,
+                    "analysis_summary": analysis.analysis_summary,
+                    "error_message": analysis.error_message
+                }
             }
         else:
             progress["analysis"] = "pending"
             details["analysis"] = {}
-        
+        # Recommendation
         if recommendation:
             progress["recommendation"] = "completed" if not recommendation.error_message else "failed"
             if recommendation.error_message:
@@ -221,44 +241,40 @@ async def get_processing_status(
             details["recommendation"] = {
                 "started_at": getattr(recommendation, "created_at", None),
                 "finished_at": getattr(recommendation, "updated_at", None),
-                "estimated_time": (recommendation.updated_at - recommendation.created_at).total_seconds() if recommendation.created_at and recommendation.updated_at else None
+                "estimated_time": (recommendation.updated_at - recommendation.created_at).total_seconds() if recommendation.created_at and recommendation.updated_at else None,
+                "model_name": None,
+            }
+            agents["recommendation"] = {
+                "status": progress["recommendation"],
+                "result": {
+                    "original_message": recommendation.original_message,
+                    "improved_message": recommendation.improved_message,
+                    "reasoning": recommendation.reasoning,
+                    "coaching_suggestions": recommendation.coaching_suggestions,
+                    "specific_feedback": recommendation.specific_feedback,
+                    "long_term_coaching": recommendation.long_term_coaching,
+                    "error_message": recommendation.error_message
+                }
             }
         else:
             progress["recommendation"] = "pending"
             details["recommendation"] = {}
-        
-        # Determine overall status
+        # Status logic: completed only if all agents are completed, failed if any agent failed
         agent_statuses = [progress.get(agent) for agent in ["evaluation", "analysis", "recommendation"]]
-        if all(s in ["completed", "failed"] for s in agent_statuses):
+        if all(s == "completed" for s in agent_statuses):
             overall_status = "completed"
-        elif any(s == "processing" for s in agent_statuses):
+        elif any(s == "failed" for s in agent_statuses):
+            overall_status = "failed"
+        else:
             overall_status = "processing"
-        else:
-            overall_status = chat_log.status
-
-        # Add model_name to details if available
-        # (Assume model_name is stored in the agent result, or fallback to ollama_service.get_current_model())
-        if evaluation and hasattr(evaluation, 'model_used') and evaluation.model_used:
-            details["evaluation"]["model_name"] = evaluation.model_used
-        else:
-            details["evaluation"]["model_name"] = ollama_service.get_current_model()
-        if analysis and hasattr(analysis, 'model_used') and analysis.model_used:
-            details["analysis"]["model_name"] = analysis.model_used
-        else:
-            details["analysis"]["model_name"] = ollama_service.get_current_model()
-        if recommendation and hasattr(recommendation, 'model_used') and recommendation.model_used:
-            details["recommendation"]["model_name"] = recommendation.model_used
-        else:
-            details["recommendation"]["model_name"] = ollama_service.get_current_model()
-
-        return ProcessingStatusResponse(
-            chat_log_id=chat_log_id,
-            status=overall_status,
-            progress=progress,
-            error_messages=error_messages,
-            details=details
-        )
-        
+        return {
+            "chat_log_id": chat_log_id,
+            "status": overall_status,
+            "progress": progress,
+            "error_messages": error_messages,
+            "details": details,
+            "agents": agents
+        }
     except HTTPException:
         raise
     except Exception as e:

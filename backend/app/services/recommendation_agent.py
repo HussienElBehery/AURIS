@@ -12,13 +12,14 @@ class RecommendationAgent:
     def __init__(self):
         self.name = "recommendation_agent"
     
-    async def generate_recommendations(self, transcript: List[Dict[str, str]], evaluation_summary: str, analysis_summary: str) -> Dict[str, Any]:
+    async def generate_recommendations(self, transcript: List[Dict[str, str]], evaluation_summary: str, analysis_summary: str, model_name: str = None) -> Dict[str, Any]:
         """
         Generate recommendations based on a chat conversation, evaluation summary, and analysis summary using Ollama.
         Args:
             transcript: List of messages with 'sender' and 'text' keys
             evaluation_summary: String summary from evaluation agent
             analysis_summary: String summary from analysis agent
+            model_name: Name of the model to use (optional, will use first available if not provided)
         Returns:
             Dictionary containing recommendation results
         """
@@ -34,7 +35,11 @@ class RecommendationAgent:
                     "error_message": "No models available in Ollama",
                     "recommendation": None
                 }
-            model_name = available_models[0]["name"]
+            model_names = [model.get("name", "") for model in available_models]
+            if model_name and model_name in model_names:
+                selected_model = model_name
+            else:
+                selected_model = available_models[0]["name"]
             transcript_text = self._format_transcript(transcript)
             # Create prompt
             recommendation_prompt = f"""
@@ -70,7 +75,7 @@ EVALUATION SUMMARY:
 ANALYSIS SUMMARY:
 {analysis_summary}
 """
-            response = ollama_service.test_generation(model_name, recommendation_prompt)
+            response = ollama_service.test_generation(selected_model, recommendation_prompt)
             if response.startswith("Error"):
                 return {
                     "error_message": response,
@@ -89,7 +94,7 @@ ANALYSIS SUMMARY:
                 rec = data.get("recommendation", {})
                 return {
                     "recommendation": rec,
-                    "model_used": model_name,
+                    "model_used": selected_model,
                     "agent": self.name,
                     "error_message": None
                 }

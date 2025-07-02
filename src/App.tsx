@@ -16,7 +16,11 @@ import ReportPage from './pages/ReportPage';
 import ModelManager from './components/ModelManager';
 
 const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, shouldRedirect } = useAuth();
+
+  if (shouldRedirect) {
+    return <Navigate to="/login" replace />;
+  }
 
   if (!user) {
     return <>{children}</>;

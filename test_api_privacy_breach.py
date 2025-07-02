@@ -2,7 +2,7 @@ import requests
 import time
 
 API_BASE = 'http://localhost:3001/api/chat-logs'
-TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzMjc4NjI5Zi0yNWU3LTQ0NGMtYmVjMS01OTk4ZjAxZjMzNzQiLCJleHAiOjE3NTE0NDU1MTZ9.tGVdaMtqmFx7BtC1gm-pEKEFEPEH82tDZ6QXJQYaltY'
+TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzMjc4NjI5Zi0yNWU3LTQ0NGMtYmVjMS01OTk4ZjAxZjMzNzQiLCJleHAiOjE3NTE0NjIyMDV9.rLUkkzwVqrDMJbC8J_vO4V4_WJ3PzcMjS6XNHcbYozk'
 HEADERS = {'Authorization': f'Bearer {TOKEN}'}
 
 # Upload the chat log
@@ -21,4 +21,12 @@ with open('test_privacy_breach_chatlog.json', 'rb') as f:
             for i in range(8):
                 s = requests.get(f'{API_BASE}/{chat_log_id}/status', headers=HEADERS)
                 print(f'Status poll {i+1} for {chat_log_id}:', s.status_code, s.text)
+                # Print the raw output if available in the response
+                try:
+                    status_json = s.json()
+                    if 'agents' in status_json:
+                        for agent, agent_data in status_json['agents'].items():
+                            print(f'Raw output for agent {agent}:', agent_data)
+                except Exception as e:
+                    print(f'Could not parse status response as JSON: {e}')
                 time.sleep(2) 

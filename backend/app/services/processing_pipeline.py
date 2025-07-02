@@ -17,6 +17,7 @@ class ProcessingPipeline:
     
     def __init__(self):
         self.current_model = None
+        self.results_cache = {}
     
     async def process_chat_log(self, transcript: List[Dict[str, str]], chat_log_id: str) -> Dict[str, Any]:
         """
@@ -29,18 +30,17 @@ class ProcessingPipeline:
         Returns:
             Dictionary containing processing results from all agents
         """
+        results = {
+            "chat_log_id": chat_log_id,
+            "processing_id": str(uuid.uuid4()),
+            "start_time": datetime.utcnow().isoformat(),
+            "agents": {},
+            "overall_status": "processing",
+            "error_messages": {},
+        }
+        self.results_cache[chat_log_id] = results
         try:
             logger.info(f"Starting processing pipeline for chat_log_id: {chat_log_id}")
-            
-            # Initialize results
-            results = {
-                "chat_log_id": chat_log_id,
-                "processing_id": str(uuid.uuid4()),
-                "start_time": datetime.utcnow().isoformat(),
-                "agents": {},
-                "overall_status": "processing",
-                "error_messages": {}
-            }
             
             # Check if Ollama is running
             if not ollama_service.is_ollama_running():
@@ -85,14 +85,13 @@ class ProcessingPipeline:
                     "error_message": evaluation_result["error_message"]
                 }
                 results["error_messages"]["evaluation"] = evaluation_result["error_message"]
-                logger.error(f"Evaluation agent failed: {evaluation_result['error_message']}")
+                results["overall_status"] = "processing"
             else:
                 results["agents"]["evaluation"] = {
                     "status": "completed",
                     "result": evaluation_result["result"]
                 }
-                logger.info("Evaluation agent completed successfully")
-                logger.info(f"Evaluation raw result: {json.dumps(evaluation_result['result'], indent=2)}")
+            self.results_cache[chat_log_id] = results.copy()
 
             # ANALYSIS AGENT
             logger.info("Loading model for analysis agent...")
@@ -114,8 +113,7 @@ class ProcessingPipeline:
                     "status": "completed",
                     "result": analysis_result
                 }
-                logger.info("Analysis agent completed successfully")
-                logger.info(f"Analysis raw result: {json.dumps(analysis_result, indent=2)}")
+                self.results_cache[chat_log_id] = results.copy()
             except Exception as e:
                 error_msg = f"Analysis agent error: {str(e)}"
                 logger.error(error_msg)
@@ -124,6 +122,7 @@ class ProcessingPipeline:
                     "error_message": error_msg
                 }
                 results["error_messages"]["analysis"] = error_msg
+                self.results_cache[chat_log_id] = results.copy()
             ollama_service.unload_model()
             logger.info(f"Model unloaded after analysis: {model_name}")
 
@@ -135,13 +134,12 @@ class ProcessingPipeline:
                 evaluation_summary = evaluation_result["result"].get("evaluation_summary") if evaluation_result.get("result") else ""
                 analysis_summary = analysis_result.get("analysis_summary") if analysis_result else ""
                 from .recommendation_agent import recommendation_agent
-                recommendation_result = await recommendation_agent.generate_recommendations(transcript, evaluation_summary, analysis_summary)
+                recommendation_result = await recommendation_agent.generate_recommendations(transcript, evaluation_summary, analysis_summary, model_name=model_name)
                 results["agents"]["recommendation"] = {
                     "status": "completed",
                     "result": recommendation_result
                 }
-                logger.info("Recommendation agent completed successfully")
-                logger.info(f"Recommendation raw result: {json.dumps(recommendation_result, indent=2)}")
+                self.results_cache[chat_log_id] = results.copy()
             except Exception as e:
                 error_msg = f"Recommendation agent error: {str(e)}"
                 logger.error(error_msg)
@@ -150,6 +148,7 @@ class ProcessingPipeline:
                     "error_message": error_msg
                 }
                 results["error_messages"]["recommendation"] = error_msg
+                self.results_cache[chat_log_id] = results.copy()
             ollama_service.unload_model()
             logger.info(f"Model unloaded after recommendation: {model_name}")
 
@@ -164,6 +163,7 @@ class ProcessingPipeline:
                 results["overall_status"] = "completed"
             
             results["end_time"] = datetime.utcnow().isoformat()
+            self.results_cache[chat_log_id] = results.copy()
             logger.info(f"Processing pipeline completed with status: {results['overall_status']}")
             
             # Final safety: unload model at the end
@@ -172,26 +172,19 @@ class ProcessingPipeline:
                 ollama_service.unload_model()
             except Exception as e:
                 logger.warning(f"Failed to auto-unload model after processing: {e}")
-            
             return results
             
         except Exception as e:
             logger.error(f"Error in processing pipeline: {e}")
-            return {
-                "chat_log_id": chat_log_id,
-                "processing_id": str(uuid.uuid4()),
-                "start_time": datetime.utcnow().isoformat(),
-                "end_time": datetime.utcnow().isoformat(),
-                "agents": {},
-                "overall_status": "failed",
-                "error_messages": {"pipeline": str(e)}
-            }
+            results["overall_status"] = "failed"
+            results["error_messages"]["pipeline"] = str(e)
+            self.results_cache[chat_log_id] = results.copy()
+            return results
     
     async def _run_analysis_agent(self, transcript: List[Dict[str, str]], model_name: str) -> Dict[str, Any]:
         """Run the analysis agent with structured output and fallback."""
-        # Use default guidelines (could be extended to accept custom guidelines)
         guidelines = None  # Or pass a list to override
-        result = await analysis_agent.analyze_chat(transcript, guidelines)
+        result = await analysis_agent.analyze_chat(transcript, guidelines, model_name=model_name)
         return result
     
     async def _run_recommendation_agent(self, transcript: List[Dict[str, str]], model_name: str) -> Dict[str, Any]:
