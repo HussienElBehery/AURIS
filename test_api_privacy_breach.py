@@ -2,7 +2,7 @@ import requests
 import time
 
 API_BASE = 'http://localhost:3001/api/chat-logs'
-TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzMjc4NjI5Zi0yNWU3LTQ0NGMtYmVjMS01OTk4ZjAxZjMzNzQiLCJleHAiOjE3NTE0NjIyMDV9.rLUkkzwVqrDMJbC8J_vO4V4_WJ3PzcMjS6XNHcbYozk'
+TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzMjc4NjI5Zi0yNWU3LTQ0NGMtYmVjMS01OTk4ZjAxZjMzNzQiLCJleHAiOjE3NTIwNzEzMDN9.tDlfrmOOcZUo25k4tq5Z8jJd1z8UxiPrR4uAH1g722I'
 HEADERS = {'Authorization': f'Bearer {TOKEN}'}
 
 # Upload the chat log

@@ -1,6 +1,8 @@
 import logging
 from typing import Dict, Any, List
 from .ollama_service import ollama_service
+import re
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -27,21 +29,23 @@ class RecommendationAgent:
             if not ollama_service.is_ollama_running():
                 return {
                     "error_message": "Ollama is not running",
-                    "recommendation": None
+                    "specific_feedback": [],
+                    "long_term_coaching": ""
                 }
             available_models = ollama_service.get_available_models()
             if not available_models:
                 return {
                     "error_message": "No models available in Ollama",
-                    "recommendation": None
+                    "specific_feedback": [],
+                    "long_term_coaching": ""
                 }
             model_names = [model.get("name", "") for model in available_models]
             if model_name and model_name in model_names:
                 selected_model = model_name
             else:
-                selected_model = available_models[0]["name"]
+                selected_model = random.choice(model_names)
             transcript_text = self._format_transcript(transcript)
-            # Create prompt
+            # Refined prompt for DB schema
             recommendation_prompt = f"""
 You are a customer service coaching agent. Given the following:
 - Conversation transcript
@@ -54,17 +58,19 @@ Your job is to:
    - A suggested_text (a short, improved rewrite)
 2. Provide a long_term_coaching string with a few actionable suggestions for the agent, based on the summaries.
 
-Respond ONLY in this JSON format:
+Respond ONLY with valid JSON inside triple backticks, and nothing else. The JSON MUST have ONLY these two fields:
+- "specific_feedback": a list of objects with "original_text" and "suggested_text"
+- "long_term_coaching": a string
+Example:
+```
 {{
-  "recommendation": {{
-    "specific_feedback": [
-      {{"original_text": "...", "suggested_text": "..."}},
-      ...
-    ],
-    "long_term_coaching": "..."
-  }}
+  "specific_feedback": [
+    {{"original_text": "...", "suggested_text": "..."}},
+    ...
+  ],
+  "long_term_coaching": "..."
 }}
-
+```
 ---
 TRANSCRIPT:
 {transcript_text}
@@ -75,39 +81,59 @@ EVALUATION SUMMARY:
 ANALYSIS SUMMARY:
 {analysis_summary}
 """
+            logger.info(f"[RECOMMENDATION] Prompt sent to model {selected_model}:\n{recommendation_prompt}")
             response = ollama_service.test_generation(selected_model, recommendation_prompt)
+            logger.info(f"[RECOMMENDATION] Raw model response: {response}")
             if response.startswith("Error"):
                 return {
                     "error_message": response,
-                    "recommendation": None
+                    "specific_feedback": [],
+                    "long_term_coaching": ""
                 }
             import json
             try:
                 cleaned = response.strip()
-                json_start = cleaned.find('{')
-                json_end = cleaned.rfind('}') + 1
-                if json_start != -1 and json_end > json_start:
-                    json_str = cleaned[json_start:json_end]
-                    data = json.loads(json_str)
+                # Extract JSON inside triple backticks if present
+                match = re.search(r'```[\s\S]*?({[\s\S]*?})[\s\S]*?```', cleaned)
+                if match:
+                    json_str = match.group(1)
                 else:
-                    data = json.loads(cleaned)
-                rec = data.get("recommendation", {})
+                    # Fallback: find first { and last }
+                    json_start = cleaned.find('{')
+                    json_end = cleaned.rfind('}') + 1
+                    if json_start != -1 and json_end > json_start:
+                        json_str = cleaned[json_start:json_end]
+                    else:
+                        json_str = cleaned
+                data = json.loads(json_str)
+                # Only extract the two fields for DB
+                specific_feedback = data.get("specific_feedback", [])
+                long_term_coaching = data.get("long_term_coaching", "")
+                if not isinstance(specific_feedback, list):
+                    specific_feedback = []
+                if not isinstance(long_term_coaching, str):
+                    long_term_coaching = ""
+                logger.info(f"[RECOMMENDATION] Parsed output: specific_feedback={specific_feedback}, long_term_coaching={long_term_coaching}")
                 return {
-                    "recommendation": rec,
+                    "specific_feedback": specific_feedback,
+                    "long_term_coaching": long_term_coaching,
+                    "error_message": None,
                     "model_used": selected_model,
-                    "agent": self.name,
-                    "error_message": None
+                    "agent": self.name
                 }
             except Exception as e:
+                logger.error(f"Failed to parse recommendation JSON. Raw response: {response}")
                 return {
                     "error_message": f"Failed to parse recommendation JSON: {str(e)}",
-                    "recommendation": None
+                    "specific_feedback": [],
+                    "long_term_coaching": ""
                 }
         except Exception as e:
             logger.error(f"Error in recommendation agent: {e}")
             return {
                 "error_message": str(e),
-                "recommendation": None
+                "specific_feedback": [],
+                "long_term_coaching": ""
             }
     
     def _format_transcript(self, transcript: List[Dict[str, str]]) -> str:

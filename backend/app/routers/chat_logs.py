@@ -183,6 +183,20 @@ async def get_processing_status(
         error_messages = {}
         details = {}
         agents = {}
+        # Try to get model_used from in-memory pipeline results
+        from app.services.processing_pipeline import processing_pipeline
+        pipeline_results = None
+        try:
+            if hasattr(processing_pipeline, 'results_cache'):
+                pipeline_results = processing_pipeline.results_cache.get(chat_log_id)
+        except Exception:
+            pipeline_results = None
+        def get_model_used(agent_key):
+            if pipeline_results and 'agents' in pipeline_results and agent_key in pipeline_results['agents']:
+                agent_result = pipeline_results['agents'][agent_key]
+                if 'result' in agent_result and isinstance(agent_result['result'], dict):
+                    return agent_result['result'].get('model_used')
+            return None
         # Evaluation
         if evaluation:
             progress["evaluation"] = "completed" if not evaluation.error_message else "failed"
@@ -192,7 +206,7 @@ async def get_processing_status(
                 "started_at": getattr(evaluation, "created_at", None),
                 "finished_at": getattr(evaluation, "updated_at", None),
                 "estimated_time": (evaluation.updated_at - evaluation.created_at).total_seconds() if evaluation.created_at and evaluation.updated_at else None,
-                "model_name": None,
+                "model_name": get_model_used("evaluation"),
             }
             agents["evaluation"] = {
                 "status": progress["evaluation"],
@@ -218,7 +232,7 @@ async def get_processing_status(
                 "started_at": getattr(analysis, "created_at", None),
                 "finished_at": getattr(analysis, "updated_at", None),
                 "estimated_time": (analysis.updated_at - analysis.created_at).total_seconds() if analysis.created_at and analysis.updated_at else None,
-                "model_name": None,
+                "model_name": get_model_used("analysis"),
             }
             agents["analysis"] = {
                 "status": progress["analysis"],
@@ -242,7 +256,7 @@ async def get_processing_status(
                 "started_at": getattr(recommendation, "created_at", None),
                 "finished_at": getattr(recommendation, "updated_at", None),
                 "estimated_time": (recommendation.updated_at - recommendation.created_at).total_seconds() if recommendation.created_at and recommendation.updated_at else None,
-                "model_name": None,
+                "model_name": get_model_used("recommendation"),
             }
             agents["recommendation"] = {
                 "status": progress["recommendation"],
