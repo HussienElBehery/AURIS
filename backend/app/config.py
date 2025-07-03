@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     
     # Ollama Settings
     DEFAULT_MODEL: str = os.getenv("DEFAULT_MODEL", "deepseek-r1:latest")
+    DEFAULT_MODEL_ANALYSIS: str = os.getenv("DEFAULT_MODEL_ANALYSIS", "agent2:latest")
+    DEFAULT_MODEL_RECOMMENDATION: str = os.getenv("DEFAULT_MODEL_RECOMMENDATION", "deepseek-r1:latest")
     
     class Config:
         env_file = ".env"

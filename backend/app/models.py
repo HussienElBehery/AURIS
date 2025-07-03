@@ -82,6 +82,7 @@ class Evaluation(Base):
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    raw_output = Column(JSON, nullable=True)  # Store raw model output for debugging
     
     # Relationships
     chat_log = relationship("ChatLog", back_populates="evaluation")
@@ -102,6 +103,7 @@ class Analysis(Base):
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    raw_output = Column(JSON, nullable=True)  # Store raw model output for debugging
     
     # Relationships
     chat_log = relationship("ChatLog", back_populates="analysis")
@@ -119,6 +121,7 @@ class Recommendation(Base):
     long_term_coaching = Column(Text, nullable=True)  # String for long-term coaching
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    raw_output = Column(JSON, nullable=True)  # Store raw model output for debugging
     
     # Relationships
     chat_log = relationship("ChatLog", back_populates="recommendation")

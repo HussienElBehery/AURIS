@@ -91,6 +91,19 @@ async function fetchWithAuthRetry(input: RequestInfo, init: RequestInit = {}, re
   return response;
 }
 
+function mapRecommendationResponse(data: any): Recommendation {
+  return {
+    id: data.id,
+    chatLogId: data.chat_log_id,
+    errorMessage: data.error_message,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+    // Fallbacks for frontend compatibility
+    specific_feedback: data.specific_feedback || [],
+    long_term_coaching: data.long_term_coaching || '',
+  };
+}
+
 export const api = {
   // Auth endpoints
   auth: {
@@ -321,7 +334,8 @@ export const api = {
       const response = await fetch(`${API_BASE_URL}/chat-logs/${chatLogId}/recommendation`, {
         headers: getAuthHeaders(),
       });
-      return handleResponse<Recommendation>(response);
+      const data = await handleResponse<any>(response);
+      return mapRecommendationResponse(data);
     },
   },
 

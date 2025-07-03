@@ -37,13 +37,17 @@ async def get_models() -> Dict[str, Any]:
         available_models = ollama_service.get_available_models()
         current_model = ollama_service.get_current_model()
         default_model = ollama_service.get_default_model()
-        
+        agent_default_models = {
+            "analysis": ollama_service.get_agent_default_model("analysis"),
+            "recommendation": ollama_service.get_agent_default_model("recommendation")
+        }
         return {
             "success": True,
             "data": {
                 "models": available_models,
                 "current_model": current_model,
                 "default_model": default_model,
+                "agent_default_models": agent_default_models,
                 "total_models": len(available_models)
             }
         }

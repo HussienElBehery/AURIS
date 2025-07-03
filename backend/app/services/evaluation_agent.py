@@ -147,43 +147,23 @@ class EvaluationAgent:
     def _create_evaluation_prompt(self, transcript_text: str) -> str:
         """Create a comprehensive evaluation prompt."""
         return f"""
-        You are an expert customer service evaluator. Analyze the following customer service conversation and provide a detailed evaluation with specific metrics.
+You are a customer service QA evaluator. For each category below, provide a score and a 1-sentence reasoning:
+- Coherence (score 1-5)
+- Politeness (score 1-5)
+- Relevance (score 1-5)
+- Resolution (score 0 = not resolved, 1 = resolved)
 
-        CONVERSATION:
-        {transcript_text}
+Respond in this format:
+{{
+  "coherence": {{"score": <int 1-5>, "reasoning": "<1 sentence>"}},
+  "politeness": {{"score": <int 1-5>, "reasoning": "<1 sentence>"}},
+  "relevance": {{"score": <int 1-5>, "reasoning": "<1 sentence>"}},
+  "resolution": {{"score": <int 0 or 1>, "reasoning": "<1 sentence>"}}
+}}
 
-        EVALUATION REQUIREMENTS:
-        Please evaluate this conversation and provide your response in the following JSON format:
-
-        {{
-          "coherence": {{
-            "score": <score from 1-5>,
-            "reasoning": "<detailed explanation of the coherence score>"
-          }},
-          "relevance": {{
-            "score": <score from 1-5>,
-            "reasoning": "<detailed explanation of the relevance score>"
-          }},
-          "politeness": {{
-            "score": <score from 1-5>,
-            "reasoning": "<detailed explanation of the politeness score>"
-          }},
-          "resolution": {{
-            "score": <0 for unresolved, 1 for resolved>,
-            "reasoning": "<detailed explanation of the resolution status>"
-          }}
-        }}
-
-        EVALUATION CRITERIA:
-        - **Coherence (1-5)**: How well the conversation flows logically and maintains context
-        - **Relevance (1-5)**: How directly the responses address the customer's issues
-        - **Politeness (1-5)**: How courteous, respectful, and professional the communication is
-        - **Resolution (0 or 1)**: 
-          - 0 = Issue was NOT resolved (customer's problem remains unsolved)
-          - 1 = Issue WAS resolved (customer's problem was successfully addressed)
-
-        CRITICAL: Respond ONLY with valid JSON. Do not include any thinking process, explanations, or additional text before or after the JSON object. Do not use <think> tags or any other formatting.
-        """
+Conversation:
+{transcript_text}
+"""
     
     def _generate_evaluation_summary(self, parsed_result: Dict[str, Any], transcript_text: str, model_name: str) -> str:
         """Generate a summary paragraph for evaluation metrics and reasoning."""

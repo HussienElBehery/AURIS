@@ -149,7 +149,7 @@ class OllamaService:
                 "model": model_name,
                 "prompt": prompt,
                 "stream": False
-            }, timeout=120)  # Increased timeout to 2 minutes
+            }, timeout=300)  # Increased timeout to 5 minutes for slow models
             
             if response.status_code == 200:
                 data = response.json()
@@ -388,6 +388,14 @@ class OllamaService:
     def get_default_model(self) -> str:
         """Get the default model from configuration"""
         return settings.DEFAULT_MODEL
+
+    def get_agent_default_model(self, agent: str) -> str:
+        if agent == "analysis":
+            return settings.DEFAULT_MODEL_ANALYSIS
+        elif agent == "recommendation":
+            return settings.DEFAULT_MODEL_RECOMMENDATION
+        else:
+            return settings.DEFAULT_MODEL
 
 # Global instance
 ollama_service = OllamaService() 

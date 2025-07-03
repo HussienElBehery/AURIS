@@ -135,9 +135,7 @@ async def process_chat_log(
     """
     try:
         # Get chat log
-        chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
-        if not chat_log:
-            raise HTTPException(status_code=404, detail="Chat log not found")
+        chat_log = get_chat_log_or_404(db, chat_log_id)
         
         # Check if already processed
         if chat_log.status in [ProcessingStatus.PROCESSING, ProcessingStatus.COMPLETED]:
@@ -173,12 +171,10 @@ async def get_processing_status(
     Get the processing status of a chat log.
     """
     try:
-        chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
-        if not chat_log:
-            raise HTTPException(status_code=404, detail="Chat log not found")
-        evaluation = db.query(Evaluation).filter(Evaluation.chat_log_id == chat_log_id).first()
-        analysis = db.query(Analysis).filter(Analysis.chat_log_id == chat_log_id).first()
-        recommendation = db.query(Recommendation).filter(Recommendation.chat_log_id == chat_log_id).first()
+        chat_log = get_chat_log_or_404(db, chat_log_id)
+        evaluation = get_evaluation_or_none(db, chat_log_id)
+        analysis = get_analysis_or_none(db, chat_log_id)
+        recommendation = get_recommendation_or_none(db, chat_log_id)
         progress = {}
         error_messages = {}
         details = {}
@@ -261,10 +257,6 @@ async def get_processing_status(
             agents["recommendation"] = {
                 "status": progress["recommendation"],
                 "result": {
-                    "original_message": recommendation.original_message,
-                    "improved_message": recommendation.improved_message,
-                    "reasoning": recommendation.reasoning,
-                    "coaching_suggestions": recommendation.coaching_suggestions,
                     "specific_feedback": recommendation.specific_feedback,
                     "long_term_coaching": recommendation.long_term_coaching,
                     "error_message": recommendation.error_message
@@ -304,7 +296,7 @@ async def get_evaluation(
     Get evaluation results for a chat log.
     """
     try:
-        evaluation = db.query(Evaluation).filter(Evaluation.chat_log_id == chat_log_id).first()
+        evaluation = get_evaluation_or_none(db, chat_log_id)
         if not evaluation:
             raise HTTPException(status_code=404, detail="Evaluation not found")
         
@@ -375,16 +367,12 @@ async def get_recommendation(
     Get recommendation results for a chat log.
     """
     try:
-        recommendation = db.query(Recommendation).filter(Recommendation.chat_log_id == chat_log_id).first()
+        recommendation = get_recommendation_or_none(db, chat_log_id)
         if not recommendation:
             raise HTTPException(status_code=404, detail="Recommendation not found")
         return RecommendationResponse(
             id=recommendation.id,
             chat_log_id=recommendation.chat_log_id,
-            original_message=recommendation.original_message,
-            improved_message=recommendation.improved_message,
-            reasoning=recommendation.reasoning,
-            coaching_suggestions=recommendation.coaching_suggestions,
             error_message=recommendation.error_message,
             specific_feedback=recommendation.specific_feedback,
             long_term_coaching=recommendation.long_term_coaching,
@@ -418,9 +406,7 @@ async def assign_agent_to_chat(
             raise HTTPException(status_code=400, detail="agent_id is required")
         
         # Get chat log
-        chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
-        if not chat_log:
-            raise HTTPException(status_code=404, detail="Chat log not found")
+        chat_log = get_chat_log_or_404(db, chat_log_id)
         
         # Update chat log with assigned agent
         chat_log.agent_id = agent_id
@@ -455,9 +441,7 @@ async def delete_chat_log(
     """
     try:
         # Get chat log
-        chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
-        if not chat_log:
-            raise HTTPException(status_code=404, detail="Chat log not found")
+        chat_log = get_chat_log_or_404(db, chat_log_id)
         
         # Check permissions
         if current_user.role != "manager" and chat_log.uploaded_by != current_user.id:
@@ -533,9 +517,7 @@ async def get_chat_log(
     """
     try:
         # Get chat log
-        chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
-        if not chat_log:
-            raise HTTPException(status_code=404, detail="Chat log not found")
+        chat_log = get_chat_log_or_404(db, chat_log_id)
         
         # Check permissions
         if current_user.role != "manager":
@@ -678,7 +660,8 @@ async def process_chat_log_background(
                             resolution=result.get("resolution", {}).get("score"),
                             reasoning=result,  # Store the full reasoning object
                             evaluation_summary=result.get("evaluation_summary"),
-                            error_message=result.get("error_message")
+                            error_message=result.get("error_message"),
+                            raw_output=result.get("raw_output")
                         )
                         db.add(evaluation)
                     elif agent_type == "analysis":
@@ -691,20 +674,18 @@ async def process_chat_log_background(
                             issues=result.get("issues"),
                             highlights=result.get("highlights"),
                             analysis_summary=result.get("analysis_summary"),
-                            error_message=result.get("error_message")
+                            error_message=result.get("error_message"),
+                            raw_output=result.get("raw_output")
                         )
                         db.add(analysis)
                     elif agent_type == "recommendation":
                         recommendation = Recommendation(
                             id=str(uuid.uuid4()),
                             chat_log_id=chat_log_id,
-                            original_message=result.get("original_message"),
-                            improved_message=result.get("improved_message"),
-                            reasoning=result.get("reasoning"),
-                            coaching_suggestions=result.get("coaching_suggestions"),
                             error_message=result.get("error_message"),
-                            specific_feedback=result.get("recommendation", {}).get("specific_feedback"),
-                            long_term_coaching=result.get("recommendation", {}).get("long_term_coaching")
+                            specific_feedback=result.get("specific_feedback"),
+                            long_term_coaching=result.get("long_term_coaching"),
+                            raw_output=result.get("raw_output")
                         )
                         db.add(recommendation)
                 elif agent_data["status"] == "failed":
@@ -817,4 +798,20 @@ async def get_all_analyses(
             ) for a in analyses
         ]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting all analyses: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Error getting all analyses: {str(e)}")
+
+# --- Helper functions ---
+def get_chat_log_or_404(db: Session, chat_log_id: str) -> ChatLog:
+    chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
+    if not chat_log:
+        raise HTTPException(status_code=404, detail="Chat log not found")
+    return chat_log
+
+def get_evaluation_or_none(db: Session, chat_log_id: str) -> Optional[Evaluation]:
+    return db.query(Evaluation).filter(Evaluation.chat_log_id == chat_log_id).first()
+
+def get_analysis_or_none(db: Session, chat_log_id: str) -> Optional[Analysis]:
+    return db.query(Analysis).filter(Analysis.chat_log_id == chat_log_id).first()
+
+def get_recommendation_or_none(db: Session, chat_log_id: str) -> Optional[Recommendation]:
+    return db.query(Recommendation).filter(Recommendation.chat_log_id == chat_log_id).first() 

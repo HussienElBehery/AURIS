@@ -58,27 +58,17 @@ class ProcessingPipeline:
                 results["overall_status"] = "failed"
                 results["error_messages"]["models"] = error_msg
                 return results
-            
-            # Use default model or first available model
-            default_model = ollama_service.get_default_model()
-            model_name = default_model
-            
-            # Check if default model is available, otherwise use first available
             model_names = [model.get("name", "") for model in available_models]
-            if default_model not in model_names:
-                logger.warning(f"Default model {default_model} not available, using first available model")
-                model_name = available_models[0]["name"]
-            
-            logger.info(f"Using model: {model_name}")
-            
-            # EVALUATION AGENT
-            logger.info("Loading model for evaluation agent...")
-            ollama_service.load_model(model_name)
-            logger.info(f"Model loaded for evaluation: {model_name}")
-            evaluation_result = await evaluation_agent.evaluate_chat(transcript, model_name)
-            ollama_service.unload_model()
-            logger.info(f"Model unloaded after evaluation: {model_name}")
 
+            # EVALUATION AGENT
+            eval_default_model = ollama_service.get_default_model()
+            eval_model_name = eval_default_model if eval_default_model in model_names else available_models[0]["name"]
+            logger.info(f"Using evaluation model: {eval_model_name}")
+            ollama_service.load_model(eval_model_name)
+            logger.info(f"Model loaded for evaluation: {eval_model_name}")
+            evaluation_result = await evaluation_agent.evaluate_chat(transcript, eval_model_name)
+            ollama_service.unload_model()
+            logger.info(f"Model unloaded after evaluation: {eval_model_name}")
             if evaluation_result.get("error_message"):
                 results["agents"]["evaluation"] = {
                     "status": "failed",
@@ -89,23 +79,25 @@ class ProcessingPipeline:
             else:
                 results["agents"]["evaluation"] = {
                     "status": "completed",
-                    "result": evaluation_result["result"]
+                    "result": evaluation_result["result"] if "result" in evaluation_result else evaluation_result
                 }
             self.results_cache[chat_log_id] = results.copy()
 
             # ANALYSIS AGENT
-            logger.info("Loading model for analysis agent...")
-            ollama_service.load_model(model_name)
-            logger.info(f"Model loaded for analysis: {model_name}")
+            analysis_default_model = ollama_service.get_agent_default_model("analysis")
+            analysis_model_name = analysis_default_model if analysis_default_model in model_names else available_models[0]["name"]
+            logger.info(f"Using analysis model: {analysis_model_name}")
+            ollama_service.load_model(analysis_model_name)
+            logger.info(f"Model loaded for analysis: {analysis_model_name}")
             try:
-                analysis_result = await self._run_analysis_agent(transcript, model_name)
+                analysis_result = await self._run_analysis_agent(transcript, analysis_model_name)
                 if analysis_result is None:
                     analysis_result = {
                         "key_issues": [],
                         "highlights": [],
                         "guidelines": [],
                         "analysis_summary": "Analysis failed: No result returned.",
-                        "model_used": model_name,
+                        "model_used": analysis_model_name,
                         "agent": "analysis_agent",
                         "error_message": "Analysis agent returned None."
                     }
@@ -124,17 +116,37 @@ class ProcessingPipeline:
                 results["error_messages"]["analysis"] = error_msg
                 self.results_cache[chat_log_id] = results.copy()
             ollama_service.unload_model()
-            logger.info(f"Model unloaded after analysis: {model_name}")
+            logger.info(f"Model unloaded after analysis: {analysis_model_name}")
 
             # RECOMMENDATION AGENT
-            logger.info("Loading model for recommendation agent...")
-            ollama_service.load_model(model_name)
-            logger.info(f"Model loaded for recommendation: {model_name}")
+            recommendation_default_model = ollama_service.get_agent_default_model("recommendation")
+            recommendation_model_name = recommendation_default_model if recommendation_default_model in model_names else available_models[0]["name"]
+            logger.info(f"Using recommendation model: {recommendation_model_name}")
+            ollama_service.load_model(recommendation_model_name)
+            logger.info(f"Model loaded for recommendation: {recommendation_model_name}")
             try:
                 evaluation_summary = evaluation_result["result"].get("evaluation_summary") if evaluation_result.get("result") else ""
                 analysis_summary = analysis_result.get("analysis_summary") if analysis_result else ""
                 from .recommendation_agent import recommendation_agent
-                recommendation_result = await recommendation_agent.generate_recommendations(transcript, evaluation_summary, analysis_summary, model_name=model_name)
+                recommendation_result = await recommendation_agent.generate_recommendations(transcript, evaluation_summary, analysis_summary, model_name=recommendation_model_name)
+                # --- Fallback logic for missing/malformed output ---
+                if not isinstance(recommendation_result, dict):
+                    logger.warning("Recommendation agent returned non-dict result, using fallback.")
+                    recommendation_result = {
+                        "specific_feedback": [{"original_text": "No feedback available.", "suggested_text": ""}],
+                        "long_term_coaching": "No coaching available.",
+                        "error_message": "Malformed output from recommendation agent.",
+                        "model_used": recommendation_model_name,
+                        "agent": "recommendation_agent",
+                        "raw_output": str(recommendation_result)
+                    }
+                # Ensure all required fields are present
+                if "specific_feedback" not in recommendation_result or not isinstance(recommendation_result["specific_feedback"], list):
+                    recommendation_result["specific_feedback"] = [{"original_text": "No feedback available.", "suggested_text": ""}]
+                if "long_term_coaching" not in recommendation_result or not isinstance(recommendation_result["long_term_coaching"], (str, type(None))):
+                    recommendation_result["long_term_coaching"] = "No coaching available."
+                if "error_message" not in recommendation_result:
+                    recommendation_result["error_message"] = None
                 results["agents"]["recommendation"] = {
                     "status": "completed",
                     "result": recommendation_result
@@ -150,7 +162,7 @@ class ProcessingPipeline:
                 results["error_messages"]["recommendation"] = error_msg
                 self.results_cache[chat_log_id] = results.copy()
             ollama_service.unload_model()
-            logger.info(f"Model unloaded after recommendation: {model_name}")
+            logger.info(f"Model unloaded after recommendation: {recommendation_model_name}")
 
             # Determine overall status
             failed_agents = [agent for agent, data in results["agents"].items() if data["status"] == "failed"]
@@ -168,7 +180,7 @@ class ProcessingPipeline:
             
             # Final safety: unload model at the end
             try:
-                logger.info(f"Final auto-unloading model {model_name} after processing completion")
+                logger.info(f"Final auto-unloading model {analysis_model_name} after processing completion")
                 ollama_service.unload_model()
             except Exception as e:
                 logger.warning(f"Failed to auto-unload model after processing: {e}")

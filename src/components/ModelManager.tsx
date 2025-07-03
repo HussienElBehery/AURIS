@@ -44,6 +44,7 @@ interface ModelStatusResponse {
   system_info: SystemInfo;
   ollama_running: boolean;
   total_models: number;
+  agent_default_models?: { [key: string]: string };
 }
 
 const AGENTS = [
@@ -122,6 +123,21 @@ const ModelManager: React.FC = () => {
     localStorage.setItem('agentModels', JSON.stringify(agentModels));
   }, [agentModels]);
 
+  // In ModelManager component, after modelStatus is set (in fetchModelList), set agentModels for agents with no user selection using agent_default_models
+  useEffect(() => {
+    if (!modelStatus || !modelStatus.agent_default_models) return;
+    setAgentModels(prev => {
+      const updated = { ...prev };
+      AGENTS.forEach(agent => {
+        if (!prev[agent.key] && modelStatus.agent_default_models![agent.key]) {
+          updated[agent.key] = modelStatus.agent_default_models![agent.key];
+        }
+      });
+      return updated;
+    });
+    setAgentModelsLoaded(true);
+  }, [modelStatus]);
+
   const fetchModelList = async () => {
     try {
       setError(null);
@@ -138,7 +154,8 @@ const ModelManager: React.FC = () => {
             memory: { total: 0, available: 0, percent: 0, used: 0 },
             gpu: { available: false, count: 0, gpus: [] },
             ollama_running: true
-          }
+          },
+          agent_default_models: response.data.agent_default_models
         }));
         setOllamaRunning(true);
         setModelsLoadedFromCache(false); // Now using fresh data

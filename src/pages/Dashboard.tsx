@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { MOCK_DASHBOARD_STATS, MOCK_CHATLOGS } from '../data/mockData';
 import MetricCard from '../components/MetricCard';
@@ -13,6 +13,8 @@ import {
   Users,
   Database
 } from 'lucide-react';
+import { api } from '../services/api';
+import type { ChatLog, Evaluation, Analysis, Recommendation } from '../types';
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
@@ -61,10 +63,10 @@ const Dashboard: React.FC = () => {
   const userChats = isDemoUser 
     ? (user?.role === 'manager' 
         ? MOCK_CHATLOGS 
-        : MOCK_CHATLOGS.filter(chat => chat.agentId === user?.id))
+        : MOCK_CHATLOGS.filter(chat => chat.agent_id === user?.id))
     : []; // Empty array for official users
 
-  const recentUnresolved = userChats.filter(chat => !chat.resolved).slice(0, 5);
+  const recentUnresolved = userChats.slice(0, 5);
 
   const chartData = [
     { label: 'Coherence', value: stats.avgCoherence, color: 'bg-blue-600' },
@@ -194,13 +196,13 @@ const Dashboard: React.FC = () => {
           <div className="p-6">
             {recentUnresolved.length > 0 ? (
               <div className="space-y-4">
-                {recentUnresolved.map((chat) => (
+                {recentUnresolved.map((chat: any) => (
                   <div key={chat.id} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
                     <div>
                       <p className="font-medium text-gray-900 dark:text-white">Chat #{chat.id}</p>
                       <p className="text-sm text-gray-600 dark:text-gray-400">
-                        {user?.role === 'manager' ? `Agent: ${chat.agentName} • ` : ''}
-                        {new Date(chat.date).toLocaleDateString()}
+                        {user?.role === 'manager' ? `Agent: ${chat.agent_id} • ` : ''}
+                        {chat.created_at ? new Date(chat.created_at).toLocaleDateString() : ''}
                       </p>
                     </div>
                     <div className="flex items-center space-x-2">
@@ -227,6 +229,42 @@ const Dashboard: React.FC = () => {
             )}
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // For official users, show real data interface
+  if (!isDemoUser) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">
+              {user?.role === 'manager' 
+                ? 'Overview of team performance and metrics' 
+                : 'Your performance overview and recent activity'
+              }
+            </p>
+          </div>
+          {user?.role === 'manager' && (
+            <div className="flex items-center space-x-2 text-emerald-600 dark:text-emerald-400">
+              <Users className="w-5 h-5" />
+              <span className="font-medium">Connected to Database</span>
+            </div>
+          )}
+        </div>
+        {!isDemoUser && (
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+            <div className="text-center py-8">
+              <Database className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No Data Available</h3>
+              <p className="text-gray-600 dark:text-gray-400">
+                Performance metrics will appear here once you start using the system
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

@@ -71,7 +71,9 @@ class AnalysisAgent:
             if model_name and model_name in model_names:
                 selected_model = model_name
             else:
-                selected_model = available_models[0]["name"]
+                selected_model = ollama_service.get_agent_default_model("analysis")
+                if selected_model not in model_names:
+                    selected_model = available_models[0]["name"]
             transcript_text = self._format_transcript(transcript)
             guidelines_list = self.get_guidelines(guidelines)
             guidelines_str = "\n".join([
@@ -81,12 +83,12 @@ class AnalysisAgent:
 You are a customer service QA bot. Analyze the conversation and return ONLY valid JSON with these exact keys:
 - "key_issues": list of short strings
 - "positive_highlights": list of short strings
-- "guideline_adherence": list of objects with keys: guideline, status (Passed/Failed), details
+- "guideline_adherence": list of objects with keys: guideline, status (Passed/Failed), details (1 sentence max)
 
 Example:
 {{
-  "key_issues": ["Agent did not acknowledge frustration", "No alternative solution offered"],
-  "positive_highlights": ["Agent responded promptly", "Polite closing"],
+  "key_issues": ["Agent did not acknowledge frustration"],
+  "positive_highlights": ["Agent responded promptly"],
   "guideline_adherence": [
     {{"guideline": "Acknowledge and Empathize", "status": "Passed", "details": "Agent expressed understanding."}},
     {{"guideline": "Set Clear Expectations", "status": "Failed", "details": "No clear next steps provided."}}
@@ -101,6 +103,7 @@ Rules:
 - If you can't judge a guideline, set status to "Failed" and details to "Not provided by model.".
 - key_issues and positive_highlights must each have at least 1 item (never both empty).
 - Only include agent-related points.
+- For each guideline, details must be 1 sentence only.
 - Respond with valid JSON only. Do not include any explanation or text outside the JSON.
 
 Conversation:
