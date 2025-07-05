@@ -48,8 +48,8 @@ export interface Attachment {
 
 export interface Evaluation {
   id: string;
-  chatLogId: string;
-  agentId?: string;
+  chat_log_id: string;
+  agent_id?: string;
   coherence?: number;
   relevance?: number;
   politeness?: number;
@@ -60,23 +60,23 @@ export interface Evaluation {
     politeness?: { score: number; reasoning: string };
     resolution?: { score: number; reasoning: string };
   };
-  evaluationSummary?: string;
-  errorMessage?: string;
-  createdAt?: string;
-  updatedAt?: string;
+  evaluation_summary?: string;
+  error_message?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Analysis {
   id: string;
-  chatLogId: string;
-  agentId?: string;
+  chat_log_id: string;
+  agent_id?: string;
   guidelines?: GuidelineResult[];
   issues?: string[];
   highlights?: string[];
-  analysisSummary?: string;
-  errorMessage?: string;
-  createdAt?: string;
-  updatedAt?: string;
+  analysis_summary?: string;
+  error_message?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface SpecificFeedbackItem {
@@ -86,14 +86,14 @@ export interface SpecificFeedbackItem {
 
 export interface Recommendation {
   id: string;
-  chatLogId: string;
-  originalMessage?: string;
-  improvedMessage?: string;
+  chat_log_id: string;
+  original_message?: string;
+  improved_message?: string;
   reasoning?: string;
-  coachingSuggestions?: string[];
-  errorMessage?: string;
-  createdAt?: string;
-  updatedAt?: string;
+  coaching_suggestions?: string[];
+  error_message?: string;
+  created_at?: string;
+  updated_at?: string;
   specific_feedback?: SpecificFeedbackItem[];
   long_term_coaching?: string;
 }
@@ -106,25 +106,25 @@ export interface GuidelineResult {
 }
 
 export interface DashboardStats {
-  avgCoherence: number;
-  avgRelevance: number;
-  avgPoliteness: number;
-  avgResolution: number;
-  totalChats: number;
-  unresolvedChats: number;
-  totalEvaluations: number;
-  improvementRate?: number;
-  topIssues?: string[];
-  agentPerformance?: AgentPerformance[];
+  avg_coherence: number;
+  avg_relevance: number;
+  avg_politeness: number;
+  avg_resolution: number;
+  total_chats: number;
+  unresolved_chats: number;
+  total_evaluations: number;
+  improvement_rate?: number;
+  top_issues?: string[];
+  agent_performance?: AgentPerformance[];
 }
 
 export interface AgentPerformance {
-  agentId: string;
-  agentName: string;
-  avgScore: number;
-  totalChats: number;
-  resolvedChats: number;
-  avgResolutionTime: number;
+  agent_id: string;
+  agent_name: string;
+  avg_score: number;
+  total_chats: number;
+  resolved_chats: number;
+  avg_resolution_time: number;
 }
 
 // API Response Types

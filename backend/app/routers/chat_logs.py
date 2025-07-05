@@ -666,11 +666,20 @@ async def process_chat_log_background(
                         db.add(evaluation)
                     elif agent_type == "analysis":
                         chat_log = db.query(ChatLog).filter(ChatLog.id == chat_log_id).first()
+                        def map_guidelines(guidelines):
+                            return [
+                                {
+                                    "name": g.get("guideline", g.get("name", "")),
+                                    "passed": g.get("status", g.get("passed", False)) == "Passed" or g.get("passed", False) is True,
+                                    "description": g.get("details", g.get("description", ""))
+                                }
+                                for g in (guidelines or [])
+                            ]
                         analysis = Analysis(
                             id=str(uuid.uuid4()),
                             chat_log_id=chat_log_id,
                             agent_id=chat_log.agent_id if chat_log else None,
-                            guidelines=result.get("guidelines"),
+                            guidelines=map_guidelines(result.get("guidelines")),
                             issues=result.get("issues"),
                             highlights=result.get("highlights"),
                             analysis_summary=result.get("analysis_summary"),
@@ -750,15 +759,21 @@ async def get_analyses_by_agent(
     """
     try:
         analyses = db.query(Analysis).filter(Analysis.agent_id == agent_id).all()
+        def map_guidelines(guidelines):
+            return [
+                {
+                    "name": g.get("guideline", g.get("name", "")),
+                    "passed": g.get("status", g.get("passed", False)) == "Passed" or g.get("passed", False) is True,
+                    "description": g.get("details", g.get("description", ""))
+                }
+                for g in (guidelines or [])
+            ]
         return [
             AnalysisResponse(
                 id=a.id,
                 chat_log_id=a.chat_log_id,
                 agent_id=a.agent_id,
-                guidelines=[
-                    {**g, 'passed': bool(g.get('passed', False))} if isinstance(g, dict) else g
-                    for g in (a.guidelines or [])
-                ] if a.guidelines else None,
+                guidelines=map_guidelines(a.guidelines),
                 issues=a.issues,
                 highlights=a.highlights,
                 analysis_summary=a.analysis_summary,
@@ -780,15 +795,21 @@ async def get_all_analyses(
     """
     try:
         analyses = db.query(Analysis).all()
+        def map_guidelines(guidelines):
+            return [
+                {
+                    "name": g.get("guideline", g.get("name", "")),
+                    "passed": g.get("status", g.get("passed", False)) == "Passed" or g.get("passed", False) is True,
+                    "description": g.get("details", g.get("description", ""))
+                }
+                for g in (guidelines or [])
+            ]
         return [
             AnalysisResponse(
                 id=a.id,
                 chat_log_id=a.chat_log_id,
                 agent_id=a.agent_id,
-                guidelines=[
-                    {**g, 'passed': bool(g.get('passed', False))} if isinstance(g, dict) else g
-                    for g in (a.guidelines or [])
-                ] if a.guidelines else None,
+                guidelines=map_guidelines(a.guidelines),
                 issues=a.issues,
                 highlights=a.highlights,
                 analysis_summary=a.analysis_summary,

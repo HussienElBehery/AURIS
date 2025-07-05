@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 
 const SignupPage: React.FC = () => {
-  const { user, demoLogin } = useAuth();
+  const { user, demoLogin, register } = useAuth();
   const { isDark } = useTheme();
   const [formData, setFormData] = useState({
     firstName: '',
@@ -13,7 +13,7 @@ const SignupPage: React.FC = () => {
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'agent'
+    role: 'agent' as 'agent' | 'manager'
   });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -74,14 +74,19 @@ const SignupPage: React.FC = () => {
     setIsLoading(true);
     
     try {
-      // TODO: Implement actual signup logic with backend
-      console.log('Signup data:', formData);
+      const success = await register({
+        name: `${formData.firstName} ${formData.lastName}`,
+        email: formData.email,
+        password: formData.password,
+        role: formData.role
+      });
       
-      // For now, simulate a successful signup and redirect to login
-      setTimeout(() => {
-        alert('Account created successfully! Please log in with your credentials.');
-        window.location.href = '/login';
-      }, 1000);
+      if (success) {
+        // Registration successful, user is already logged in
+        // The AuthContext will handle the redirect
+      } else {
+        setErrors({ general: 'Failed to create account. Please try again.' });
+      }
       
     } catch (error) {
       console.error('Signup error:', error);
