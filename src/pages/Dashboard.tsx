@@ -40,7 +40,8 @@ const Dashboard: React.FC = () => {
         avg_politeness: 0,
         avg_resolution: 0,
         total_chats: 0,
-        unresolved_chats: 0
+        unresolved_chats: 0,
+        total_evaluations: 0
       };
     }
     
@@ -61,7 +62,8 @@ const Dashboard: React.FC = () => {
       avg_politeness: 4.3,
       avg_resolution: 0.75,
       total_chats: 15,
-      unresolved_chats: 2
+      unresolved_chats: 2,
+      total_evaluations: 15
     };
   };
 
@@ -295,53 +297,6 @@ const Dashboard: React.FC = () => {
     }, 10000);
     return () => clearInterval(interval);
   }, [coachingTips]);
-
-  // --- New: Helper for guideline card ---
-  const GuidelineCard: React.FC<{ name: string; passed: boolean; description: string }> = ({ name, passed, description }) => (
-  <div className={`rounded-lg p-4 border flex flex-col gap-2 ${passed ? 'border-green-400 bg-green-50 dark:bg-green-900/20' : 'border-red-400 bg-red-50 dark:bg-red-900/20'}`}>
-    <div className="flex items-center gap-2">
-      {passed ? <CheckCircle className="text-green-500 w-5 h-5" /> : <AlertCircle className="text-red-500 w-5 h-5" />}
-      <span className="font-semibold text-gray-900 dark:text-white">{name}</span>
-      <span className={`ml-auto px-2 py-0.5 rounded-full text-xs font-medium ${passed ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200' : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200'}`}>{passed ? 'Passed' : 'Failed'}</span>
-    </div>
-  </div>
-);
-
-  // --- New: Unresolved Chat Card ---
-  const UnresolvedChatCard: React.FC<{ chat: ChatLog; onView: (chat: ChatLog) => void }> = ({ chat, onView }) => (
-  <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 flex items-center justify-between mb-2">
-    <div>
-      <div className="font-medium text-gray-900 dark:text-white">{chat.interaction_id}</div>
-      <div className="text-xs text-gray-500 dark:text-gray-400">ID: {chat.id}</div>
-    </div>
-    <button onClick={() => onView(chat)} className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1">
-      <Eye className="w-4 h-4" /> View
-    </button>
-  </div>
-);
-
-  // --- New: Resolution Rate Over Time ---
-  const resolutionTrend = chatLogs
-    .filter(log => log.created_at)
-    .sort((a, b) => new Date(a.created_at!).getTime() - new Date(b.created_at!).getTime())
-    .map(log => {
-      const evalForLog = evaluations.find(e => e.chat_log_id === log.id);
-      return {
-        date: log.created_at ? new Date(log.created_at).toLocaleDateString() : '',
-        resolved: evalForLog && (evalForLog.resolution ?? 1) > 0 ? 1 : 0
-      };
-    });
-  // Group by date and calculate % resolved
-  const dateMap: Record<string, { total: number; resolved: number }> = {};
-  resolutionTrend.forEach(({ date, resolved }) => {
-    if (!dateMap[date]) dateMap[date] = { total: 0, resolved: 0 };
-    dateMap[date].total++;
-    if (resolved) dateMap[date].resolved++;
-  });
-  const resolutionRateData = Object.entries(dateMap).map(([date, { total, resolved }]) => ({
-    date,
-    rate: total ? Math.round((resolved / total) * 100) : 0
-  }));
 
   // --- State for unresolved chat modal ---
   const [selectedChat, setSelectedChat] = useState<ChatLog | null>(null);
@@ -627,9 +582,10 @@ const Dashboard: React.FC = () => {
           />
         </div>
 
-        {/* Guidelines - Now Full Width */}
-        <div className="w-full mt-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow flex flex-col items-start min-h-[260px] border border-gray-200 dark:border-gray-700 w-full">
+        {/* Guidelines and Unresolved Chatlogs - Side by Side */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+          {/* Guidelines Section */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow border border-gray-200 dark:border-gray-700">
             <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white flex items-center">Guidelines <span className="ml-2">📋</span></h3>
             {topGuidelines.length === 0 ? (
               <div className="text-gray-500">No guideline data available.</div>
@@ -658,11 +614,9 @@ const Dashboard: React.FC = () => {
               })
             )}
           </div>
-        </div>
 
-        {/* Unresolved Chatlogs Section */}
-        <div className="w-full mt-6">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow border border-gray-200 dark:border-gray-700 w-full">
+          {/* Unresolved Chatlogs Section */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow border border-gray-200 dark:border-gray-700">
             <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white flex items-center">Unresolved Chatlogs <span className="ml-2">❗</span></h3>
             {loadingChats || loadingEvals ? (
               <div className="text-gray-500">Loading unresolved chatlogs...</div>
@@ -898,9 +852,10 @@ const Dashboard: React.FC = () => {
         />
       </div>
 
-      {/* Guidelines - Now Full Width */}
-      <div className="w-full mt-4">
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow flex flex-col items-start min-h-[260px] border border-gray-200 dark:border-gray-700 w-full">
+      {/* Guidelines and Unresolved Chatlogs - Side by Side */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+        {/* Guidelines Section */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow border border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white flex items-center">Guidelines <span className="ml-2">📋</span></h3>
           {topGuidelines.length === 0 ? (
             <div className="text-gray-500">No guideline data available.</div>
@@ -929,11 +884,9 @@ const Dashboard: React.FC = () => {
             })
           )}
         </div>
-      </div>
 
-      {/* Unresolved Chatlogs Section */}
-      <div className="w-full mt-6">
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow border border-gray-200 dark:border-gray-700 w-full">
+        {/* Unresolved Chatlogs Section */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow border border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white flex items-center">Unresolved Chatlogs <span className="ml-2">❗</span></h3>
           {loadingChats || loadingEvals ? (
             <div className="text-gray-500">Loading unresolved chatlogs...</div>

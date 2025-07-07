@@ -31,8 +31,13 @@ const ChatsPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const logs = await api.chatLogs.getAll();
-      setChatLogs(logs);
+      if (isDemoUser) {
+        // Use mock data for demo users
+        setChatLogs(MOCK_CHATLOGS);
+      } else {
+        const logs = await api.chatLogs.getAll();
+        setChatLogs(logs);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load chat logs');
       console.error('Error loading chat logs:', err);
@@ -41,23 +46,17 @@ const ChatsPage: React.FC = () => {
     }
   };
 
-  // Filter chat logs based on user role and search criteria
-  const filteredChats = chatLogs.filter(chat => {
-    // For agents, they should only see their own chats (already filtered by backend)
-    // For managers, they can see all chats but can filter by agent
-    if (user?.role === 'manager' && selectedAgent !== 'all') {
-      // Manager filtering by specific agent
-      if (chat.agent_id !== selectedAgent) {
-        return false;
-      }
-    }
-
-    const matchesSearch = chat.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         chat.interaction_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (chat.agent_id && chat.agent_id.toLowerCase().includes(searchTerm.toLowerCase()));
+  // Filter chat logs based on search, status, and agent
+  const filteredChatLogs = chatLogs.filter(chat => {
+    const matchesSearch = searchTerm === '' || 
+      chat.agent_persona?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      chat.transcript?.some(msg => msg.text.toLowerCase().includes(searchTerm.toLowerCase()));
+    
     const matchesStatus = filterStatus === 'all' || chat.status === filterStatus;
     
-    return matchesSearch && matchesStatus;
+    const matchesAgent = selectedAgent === 'all' || chat.agent_id === selectedAgent;
+    
+    return matchesSearch && matchesStatus && matchesAgent;
   });
 
   const handleUploadSuccess = (chatLog: ChatLog) => {
@@ -85,45 +84,44 @@ const ChatsPage: React.FC = () => {
     }
   };
 
-  const getStatusColor = (status: ProcessingStatus) => {
-    switch (status) {
-      case 'pending': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200';
-      case 'processing': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-200';
-      case 'completed': return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-200';
-      case 'failed': return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-200';
-      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-200';
-    }
-  };
-
-  const fetchAgentStatuses = async (chatLogId: string) => {
-    try {
-      // Default: not started
-      let evaluation = 'not_started', analysis = 'not_started', recommendation = 'not_started';
-      // Try to fetch evaluation
-      try {
-        const evalData = await api.evaluations.getByChatLogId(chatLogId);
-        evaluation = evalData && !evalData.errorMessage ? 'completed' : 'failed';
-      } catch { evaluation = 'not_started'; }
-      // Try to fetch analysis
-      try {
-        const analysisData = await api.analysis.getByChatLogId(chatLogId);
-        analysis = analysisData && !analysisData.errorMessage ? 'completed' : 'failed';
-      } catch { analysis = 'not_started'; }
-      // Try to fetch recommendation
-      try {
-        const recData = await api.recommendations.getByChatLogId(chatLogId);
-        recommendation = recData && !recData.errorMessage ? 'completed' : 'failed';
-      } catch { recommendation = 'not_started'; }
-      setAgentStatuses({ evaluation, analysis, recommendation });
-    } catch {
-      setAgentStatuses(null);
-    }
-  };
-
   const handleViewChat = (chat: ChatLog) => {
     setSelectedChat(chat);
     setShowViewModal(true);
-    fetchAgentStatuses(chat.id);
+  };
+
+  const formatDate = (dateString: string | undefined) => {
+    if (!dateString) return 'N/A';
+    try {
+      return new Date(dateString).toLocaleDateString();
+    } catch {
+      return 'N/A';
+    }
+  };
+
+  const getStatusColor = (status: ProcessingStatus) => {
+    switch (status) {
+      case 'completed': return 'text-green-600 bg-green-100 dark:bg-green-900/50';
+      case 'processing': return 'text-yellow-600 bg-yellow-100 dark:bg-yellow-900/50';
+      case 'pending': return 'text-blue-600 bg-blue-100 dark:bg-blue-900/50';
+      case 'failed': return 'text-red-600 bg-red-100 dark:bg-red-900/50';
+      default: return 'text-gray-600 bg-gray-100 dark:bg-gray-900/50';
+    }
+  };
+
+  const fetchAgentStatuses = async (chatId: string) => {
+    try {
+      const evaluation = await api.evaluations.getByChatLogId(chatId);
+      const analysis = await api.analysis.getByChatLogId(chatId);
+      const recommendation = await api.recommendations.getByChatLogId(chatId);
+      
+      setAgentStatuses({
+        evaluation: evaluation.error_message || 'Completed',
+        analysis: analysis.error_message || 'Completed',
+        recommendation: recommendation.error_message || 'Completed'
+      });
+    } catch (error) {
+      console.error('Error fetching agent statuses:', error);
+    }
   };
 
   return (
@@ -263,7 +261,7 @@ const ChatsPage: React.FC = () => {
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  Chat Logs ({filteredChats.length})
+                  Chat Logs ({filteredChatLogs.length})
                 </h2>
               </div>
             </div>
@@ -295,14 +293,14 @@ const ChatsPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                  {filteredChats.length === 0 ? (
+                  {filteredChatLogs.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                         {loading ? 'Loading chat logs...' : 'No chat logs found'}
                       </td>
                     </tr>
                   ) : (
-                    filteredChats.map((chat) => (
+                    filteredChatLogs.map((chat) => (
                       <tr key={chat.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
                           {chat.interaction_id}
@@ -313,15 +311,7 @@ const ChatsPage: React.FC = () => {
                           </td>
                         )}
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                          {(() => {
-                            try {
-                              if (!chat.created_at) return 'N/A';
-                              const date = new Date(chat.created_at);
-                              return isNaN(date.getTime()) ? 'N/A' : date.toLocaleDateString();
-                            } catch {
-                              return 'N/A';
-                            }
-                          })()}
+                          {formatDate(chat.created_at)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(chat.status)}`}>
@@ -352,11 +342,8 @@ const ChatsPage: React.FC = () => {
       )}
 
       {activeTab === 'upload' && (
-        <div className="space-y-6">
-          <ChatLogUpload 
-            onUploadSuccess={handleUploadSuccess}
-            onProcessingComplete={handleProcessingComplete}
-          />
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+          <ChatLogUpload />
         </div>
       )}
 
@@ -396,15 +383,7 @@ const ChatsPage: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-500 dark:text-gray-400">Date</label>
                   <p className="text-sm text-gray-900 dark:text-white">
-                    {(() => {
-                      try {
-                        if (!selectedChat.created_at) return 'N/A';
-                        const date = new Date(selectedChat.created_at);
-                        return isNaN(date.getTime()) ? 'N/A' : date.toLocaleDateString();
-                      } catch {
-                        return 'N/A';
-                      }
-                    })()}
+                    {formatDate(selectedChat.created_at)}
                   </p>
                 </div>
               </div>

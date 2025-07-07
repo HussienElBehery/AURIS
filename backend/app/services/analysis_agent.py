@@ -221,7 +221,8 @@ Conversation:
                                     "passed": g["status"] == "Passed",
                                     "description": g.get("details", "")
                                 } for g in parsed["guideline_adherence"]
-                            ])
+                            ]),
+                            "raw_output": response
                         }
                     else:
                         logger.warning(f"Missing guidelines in output: {missing}. Retrying...")

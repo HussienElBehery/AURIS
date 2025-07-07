@@ -96,6 +96,7 @@ export interface Recommendation {
   updated_at?: string;
   specific_feedback?: SpecificFeedbackItem[];
   long_term_coaching?: string;
+  raw_output?: any;
 }
 
 export interface GuidelineResult {

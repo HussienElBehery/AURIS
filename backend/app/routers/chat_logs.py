@@ -680,19 +680,36 @@ async def process_chat_log_background(
                             chat_log_id=chat_log_id,
                             agent_id=chat_log.agent_id if chat_log else None,
                             guidelines=map_guidelines(result.get("guidelines")),
-                            issues=result.get("issues"),
-                            highlights=result.get("highlights"),
+                            issues=result.get("issues") or result.get("key_issues"),
+                            highlights=result.get("highlights") or result.get("positive_highlights"),
                             analysis_summary=result.get("analysis_summary"),
                             error_message=result.get("error_message"),
                             raw_output=result.get("raw_output")
                         )
                         db.add(analysis)
                     elif agent_type == "recommendation":
+                        # Normalize specific_feedback to always have 'original_text' and 'suggested_text' keys
+                        def normalize_feedback(feedback):
+                            if not feedback:
+                                return []
+                            normalized = []
+                            for item in feedback:
+                                if isinstance(item, dict):
+                                    orig = item.get('original_text') or item.get('original') or ''
+                                    sugg = item.get('suggested_text') or item.get('suggested') or ''
+                                    normalized.append({'original_text': orig, 'suggested_text': sugg})
+                                elif isinstance(item, (list, tuple)) and len(item) == 2:
+                                    normalized.append({'original_text': item[0], 'suggested_text': item[1]})
+                                else:
+                                    # fallback: treat as string
+                                    normalized.append({'original_text': str(item), 'suggested_text': ''})
+                            return normalized
+                        normalized_feedback = normalize_feedback(result.get("specific_feedback"))
                         recommendation = Recommendation(
                             id=str(uuid.uuid4()),
                             chat_log_id=chat_log_id,
                             error_message=result.get("error_message"),
-                            specific_feedback=result.get("specific_feedback"),
+                            specific_feedback=normalized_feedback,
                             long_term_coaching=result.get("long_term_coaching"),
                             raw_output=result.get("raw_output")
                         )

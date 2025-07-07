@@ -102,6 +102,9 @@ class EvaluationAgent:
                 
                 logger.info(f"Successfully parsed evaluation response with scores: coherence={parsed_result['coherence']['score']}, relevance={parsed_result['relevance']['score']}, politeness={parsed_result['politeness']['score']}, resolution={parsed_result['resolution']['score']}")
                 
+                # Add raw_output to parsed_result
+                parsed_result["raw_output"] = response
+                
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse JSON response: {e}")
                 logger.error(f"Raw response: {response}")
@@ -145,15 +148,17 @@ class EvaluationAgent:
                 logger.warning(f"Failed to auto-unload model after evaluation: {e}")
     
     def _create_evaluation_prompt(self, transcript_text: str) -> str:
-        """Create a comprehensive evaluation prompt."""
+        """Create a comprehensive evaluation prompt in Alpaca format with clear resolution criteria."""
         return f"""
-You are a customer service QA evaluator. For each category below, provide a score and a 1-sentence reasoning:
-- Coherence (score 1-5)
-- Politeness (score 1-5)
-- Relevance (score 1-5)
-- Resolution (score 0 = not resolved, 1 = resolved)
+### Instruction:
+You are a customer service QA evaluator. Carefully read the following conversation and evaluate the agent's performance in four categories. For each category, provide a score and a 1-sentence reasoning.
 
-Respond in this format:
+- Coherence (score 1-5): How logically consistent and easy to follow are the agent's responses?
+- Politeness (score 1-5): How polite and respectful is the agent throughout the conversation?, Also make sure to be strict here.
+- Relevance (score 1-5): How relevant and on-topic are the agent's responses to the customer's needs?
+- Resolution (score 0 or 1): Only give a score of 1 if the customer's problem is fully resolved by the end of the conversation. If the problem is not resolved or only partially resolved, give a score of 0.
+
+Respond strictly in this JSON format:
 {{
   "coherence": {{"score": <int 1-5>, "reasoning": "<1 sentence>"}},
   "politeness": {{"score": <int 1-5>, "reasoning": "<1 sentence>"}},
@@ -161,8 +166,10 @@ Respond in this format:
   "resolution": {{"score": <int 0 or 1>, "reasoning": "<1 sentence>"}}
 }}
 
-Conversation:
+### Input:
 {transcript_text}
+
+### Response:
 """
     
     def _generate_evaluation_summary(self, parsed_result: Dict[str, Any], transcript_text: str, model_name: str) -> str:

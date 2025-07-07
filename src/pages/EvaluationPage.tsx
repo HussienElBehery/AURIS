@@ -5,6 +5,7 @@ import { api } from '../services/api';
 import { ChatLog, Evaluation } from '../types';
 import Chart from '../components/Chart';
 import MetricCard from '../components/MetricCard';
+import { MOCK_CHATLOGS, MOCK_EVALUATIONS } from '../data/mockData';
 
 const EvaluationPage: React.FC = () => {
   const { user } = useAuth();
@@ -31,45 +32,49 @@ const EvaluationPage: React.FC = () => {
 
   // Load chat logs and evaluations
   useEffect(() => {
-    if (!isDemoUser) {
-      loadData();
-    }
+    loadData();
   }, [isDemoUser]);
 
   const loadData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const logs = await api.chatLogs.getAll();
-      setChatLogs(logs);
-      
-      // Debug: Log user object to see what fields are available
-      console.log('Current user object:', user);
-      console.log('User agentId:', user?.agentId);
-      console.log('User agent_id:', (user as any)?.agent_id);
-      
-      // Load evaluations by agent_id instead of by chat_log_id
-      const allEvaluations: Evaluation[] = [];
-      
-      if (user?.role === 'manager') {
-        // Managers can see all evaluations
-        const evaluations = await api.evaluations.getAll();
-        allEvaluations.push(...evaluations.map(mapEvaluation));
+      if (isDemoUser) {
+        // Use mock data for demo users
+        setChatLogs(MOCK_CHATLOGS);
+        setEvaluations(MOCK_EVALUATIONS);
       } else {
-        // Agents see their own evaluations - use agentId from user object
-        const agentId = user?.agentId || (user as any)?.agent_id;
-        if (agentId) {
-          console.log(`Loading evaluations for agent: ${agentId}`);
-          const evaluations = await api.evaluations.getByAgentId(agentId);
-          console.log('Raw evaluations from API:', evaluations);
+        const logs = await api.chatLogs.getAll();
+        setChatLogs(logs);
+        
+        // Debug: Log user object to see what fields are available
+        console.log('Current user object:', user);
+        console.log('User agentId:', user?.agentId);
+        console.log('User agent_id:', (user as any)?.agent_id);
+        
+        // Load evaluations by agent_id instead of by chat_log_id
+        const allEvaluations: Evaluation[] = [];
+        
+        if (user?.role === 'manager') {
+          // Managers can see all evaluations
+          const evaluations = await api.evaluations.getAll();
           allEvaluations.push(...evaluations.map(mapEvaluation));
         } else {
-          console.warn('No agentId found for user:', user);
+          // Agents see their own evaluations - use agentId from user object
+          const agentId = user?.agentId || (user as any)?.agent_id;
+          if (agentId) {
+            console.log(`Loading evaluations for agent: ${agentId}`);
+            const evaluations = await api.evaluations.getByAgentId(agentId);
+            console.log('Raw evaluations from API:', evaluations);
+            allEvaluations.push(...evaluations.map(mapEvaluation));
+          } else {
+            console.warn('No agentId found for user:', user);
+          }
         }
+        
+        console.log('All evaluations after processing:', allEvaluations);
+        setEvaluations(allEvaluations);
       }
-      
-      console.log('All evaluations after processing:', allEvaluations);
-      setEvaluations(allEvaluations);
     } catch (err: any) {
       setError(err.message || 'Failed to load data');
       console.error('Error loading data:', err);
@@ -79,48 +84,46 @@ const EvaluationPage: React.FC = () => {
   };
 
   const userChats = isDemoUser 
-    ? [] // Demo data would be handled differently
+    ? MOCK_CHATLOGS
     : chatLogs;
 
   const userEvaluations = isDemoUser 
-    ? [] // Demo data would be handled differently
+    ? MOCK_EVALUATIONS
     : evaluations;
 
-  const filteredEvaluations = userEvaluations.filter(evaluation => {
-    const chat = userChats.find(c => c.id === evaluation.chatLogId);
+  // Filter evaluations based on selected chat and agent
+  const filteredEvaluations = userEvaluations.filter((evaluation: Evaluation) => {
+    const chat = userChats.find((c: ChatLog) => c.id === evaluation.chat_log_id);
     if (!chat) return false;
     
-    const matchesChat = selectedChat === 'all' || evaluation.chatLogId === selectedChat;
-    const matchesAgent = selectedAgent === 'all' || evaluation.agentId === selectedAgent;
+    const matchesChat = selectedChat === 'all' || evaluation.chat_log_id === selectedChat;
+    const matchesAgent = selectedAgent === 'all' || chat.agent_id === selectedAgent;
     
     return matchesChat && matchesAgent;
   });
 
-  console.log('User evaluations:', userEvaluations);
-  console.log('Filtered evaluations:', filteredEvaluations);
-  console.log('Selected chat:', selectedChat);
-  console.log('Selected agent:', selectedAgent);
+  // Calculate average metrics for all filtered evaluations
+  const avg = (arr: number[]) => arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+  const coherenceArr = filteredEvaluations.map((e: Evaluation) => e.coherence ?? 0).filter(Boolean);
+  const relevanceArr = filteredEvaluations.map((e: Evaluation) => e.relevance ?? 0).filter(Boolean);
+  const politenessArr = filteredEvaluations.map((e: Evaluation) => e.politeness ?? 0).filter(Boolean);
+  const resolutionArr = filteredEvaluations.map((e: Evaluation) => e.resolution ?? 0).filter(e => typeof e === 'number');
 
-  const currentEvaluation = selectedChat !== 'all' 
-    ? filteredEvaluations.find(e => e.chatLogId === selectedChat)
-    : null;
+  const avg_coherence = avg(coherenceArr);
+  const avg_relevance = avg(relevanceArr);
+  const avg_politeness = avg(politenessArr);
 
-  console.log('Current evaluation:', currentEvaluation);
+  // For resolution rate (percentage)
+  const resolvedCount = filteredEvaluations.filter(e => e.resolution === 1).length;
+  const unresolvedCount = filteredEvaluations.filter(e => e.resolution === 0).length;
+  const totalResolution = resolvedCount + unresolvedCount;
+  const resolutionRate = totalResolution > 0 ? resolvedCount / totalResolution : 0;
 
-  // Calculate averages
-  const avgMetrics = filteredEvaluations.length > 0 ? {
-    coherence: filteredEvaluations.reduce((sum, e) => sum + (e.coherence || 0), 0) / filteredEvaluations.length,
-    relevance: filteredEvaluations.reduce((sum, e) => sum + (e.relevance || 0), 0) / filteredEvaluations.length,
-    politeness: filteredEvaluations.reduce((sum, e) => sum + (e.politeness || 0), 0) / filteredEvaluations.length,
-    resolution: filteredEvaluations.reduce((sum, e) => sum + (e.resolution || 0), 0) / filteredEvaluations.length
-  } : { coherence: 0, relevance: 0, politeness: 0, resolution: 0 };
-
-  // Format averages to 1 decimal place for display and chart
   const formattedAvgMetrics = {
-    coherence: Number(avgMetrics.coherence.toFixed(1)),
-    relevance: Number(avgMetrics.relevance.toFixed(1)),
-    politeness: Number(avgMetrics.politeness.toFixed(1)),
-    resolution: Number(avgMetrics.resolution.toFixed(2)),
+    coherence: Math.round(avg_coherence * 10) / 10,
+    relevance: Math.round(avg_relevance * 10) / 10,
+    politeness: Math.round(avg_politeness * 10) / 10,
+    resolution: Math.round(resolutionRate * 100) / 100
   };
 
   const chartData = [
@@ -145,10 +148,163 @@ const EvaluationPage: React.FC = () => {
             Demo Mode
           </div>
         </div>
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-4">
-          <p className="text-blue-800 dark:text-blue-200">
-            This is demo mode. Please log in to see real evaluation data.
-          </p>
+
+        {/* Filters */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Filter by Chat
+              </label>
+              <select
+                value={selectedChat}
+                onChange={(e) => setSelectedChat(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              >
+                <option value="all">All Chats</option>
+                {userChats.map(chat => (
+                  <option key={chat.id} value={chat.id}>
+                    {chat.agent_persona} - {chat.created_at ? new Date(chat.created_at).toLocaleDateString() : 'N/A'}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {user?.role === 'manager' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Filter by Agent
+                </label>
+                <select
+                  value={selectedAgent}
+                  onChange={(e) => setSelectedAgent(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                >
+                  <option value="all">All Agents</option>
+                  {Array.from(new Set(userEvaluations.map(evaluation => {
+                    const chat = userChats.find(c => c.id === evaluation.chat_log_id);
+                    return chat?.agent_id;
+                  }).filter(Boolean))).map(agentId => (
+                    <option key={agentId} value={agentId}>{agentId}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Metrics Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <MetricCard
+            title="Average Coherence"
+            value={formattedAvgMetrics.coherence}
+            subtitle="out of 5"
+            icon={Brain}
+            color="blue"
+          />
+          <MetricCard
+            title="Average Relevance"
+            value={formattedAvgMetrics.relevance}
+            subtitle="out of 5"
+            icon={MessageSquare}
+            color="green"
+          />
+          <MetricCard
+            title="Average Politeness"
+            value={formattedAvgMetrics.politeness}
+            subtitle="out of 5"
+            icon={Heart}
+            color="purple"
+          />
+          <MetricCard
+            title="Average Resolution"
+            value={formattedAvgMetrics.resolution}
+            subtitle="out of 1"
+            icon={CheckCircle}
+            color="yellow"
+          />
+        </div>
+
+        {/* Chart */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Performance Overview</h3>
+          <Chart data={chartData} type="bar" title="Evaluation Metrics" />
+        </div>
+
+        {/* Evaluations List */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Recent Evaluations ({filteredEvaluations.length})
+            </h3>
+          </div>
+          <div className="divide-y divide-gray-200 dark:divide-gray-700">
+            {filteredEvaluations.length === 0 ? (
+              <div className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                No evaluations found
+              </div>
+            ) : (
+              filteredEvaluations.map((evaluation) => {
+                const chat = userChats.find(c => c.id === evaluation.chat_log_id);
+                return (
+                  <div key={evaluation.id} className="p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h4 className="text-lg font-medium text-gray-900 dark:text-white">
+                          {chat?.agent_persona} - {chat?.created_at ? new Date(chat.created_at).toLocaleDateString() : 'N/A'}
+                        </h4>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          Chat ID: {evaluation.chat_log_id}
+                        </p>
+                      </div>
+                      <div className="flex space-x-2">
+                        <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200 rounded">
+                          Coherence: {evaluation.coherence}/5
+                        </span>
+                        <span className="px-2 py-1 text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200 rounded">
+                          Relevance: {evaluation.relevance}/5
+                        </span>
+                        <span className="px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-200 rounded">
+                          Politeness: {evaluation.politeness}/5
+                        </span>
+                        <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-200 rounded">
+                          Resolution: {evaluation.resolution}/1
+                        </span>
+                      </div>
+                    </div>
+                    {evaluation.reasoning && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <h5 className="font-medium text-gray-900 dark:text-white mb-2">Coherence</h5>
+                          <p className="text-gray-600 dark:text-gray-400">
+                            {evaluation.reasoning.coherence?.reasoning || 'No reasoning provided'}
+                          </p>
+                        </div>
+                        <div>
+                          <h5 className="font-medium text-gray-900 dark:text-white mb-2">Relevance</h5>
+                          <p className="text-gray-600 dark:text-gray-400">
+                            {evaluation.reasoning.relevance?.reasoning || 'No reasoning provided'}
+                          </p>
+                        </div>
+                        <div>
+                          <h5 className="font-medium text-gray-900 dark:text-white mb-2">Politeness</h5>
+                          <p className="text-gray-600 dark:text-gray-400">
+                            {evaluation.reasoning.politeness?.reasoning || 'No reasoning provided'}
+                          </p>
+                        </div>
+                        <div>
+                          <h5 className="font-medium text-gray-900 dark:text-white mb-2">Resolution</h5>
+                          <p className="text-gray-600 dark:text-gray-400">
+                            {evaluation.reasoning.resolution?.reasoning || 'No reasoning provided'}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       </div>
     );
@@ -201,7 +357,7 @@ const EvaluationPage: React.FC = () => {
                   <option value="all">All Chats (Average)</option>
                   {userChats.map(chat => (
                     <option key={chat.id} value={chat.id}>
-                      {chat.interaction_id} - {chat.agent_id || 'N/A'} ({new Date(chat.created_at || '').toLocaleDateString()})
+                      {chat.interaction_id} - {chat.agent_id || 'N/A'} ({chat.created_at ? new Date(chat.created_at).toLocaleDateString() : 'N/A'})
                     </option>
                   ))}
                 </select>
@@ -218,7 +374,7 @@ const EvaluationPage: React.FC = () => {
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   >
                     <option value="all">All Agents</option>
-                    {Array.from(new Set(userEvaluations.map(evaluation => evaluation.agentId).filter(Boolean))).map(agentId => (
+                    {Array.from(new Set(userEvaluations.map(evaluation => evaluation.agent_id).filter(Boolean))).map(agentId => (
                       <option key={agentId} value={agentId}>{agentId}</option>
                     ))}
                   </select>
@@ -231,29 +387,34 @@ const EvaluationPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <MetricCard
               title="Coherence"
-              value={currentEvaluation ? (currentEvaluation.coherence || 0).toFixed(1) : formattedAvgMetrics.coherence.toFixed(1)}
+              value={selectedChat === 'all' ? avg_coherence.toFixed(1) : (filteredEvaluations[0]?.coherence?.toFixed(1) || '0.0')}
               subtitle="out of 5.0"
               icon={Brain}
               color="blue"
             />
             <MetricCard
               title="Relevance"
-              value={currentEvaluation ? (currentEvaluation.relevance || 0).toFixed(1) : formattedAvgMetrics.relevance.toFixed(1)}
+              value={selectedChat === 'all' ? avg_relevance.toFixed(1) : (filteredEvaluations[0]?.relevance?.toFixed(1) || '0.0')}
               subtitle="out of 5.0"
               icon={MessageSquare}
               color="green"
             />
             <MetricCard
               title="Politeness"
-              value={currentEvaluation ? (currentEvaluation.politeness || 0).toFixed(1) : formattedAvgMetrics.politeness.toFixed(1)}
+              value={selectedChat === 'all' ? avg_politeness.toFixed(1) : (filteredEvaluations[0]?.politeness?.toFixed(1) || '0.0')}
               subtitle="out of 5.0"
               icon={Heart}
               color="purple"
             />
             <MetricCard
-              title="Resolution"
-              value={currentEvaluation ? (currentEvaluation.resolution || 0).toFixed(2) : formattedAvgMetrics.resolution.toFixed(2)}
-              subtitle={currentEvaluation ? (currentEvaluation.resolution ? 'Resolved' : 'Unresolved') : 'Rate'}
+              title={selectedChat === 'all' ? 'Resolution Rate' : 'Resolution'}
+              value={selectedChat === 'all'
+                ? `${(resolutionRate * 100).toFixed(0)}%`
+                : (filteredEvaluations[0]?.resolution === 1 ? 'Resolved' : filteredEvaluations[0]?.resolution === 0 ? 'Unresolved' : 'N/A')
+              }
+              subtitle={selectedChat === 'all'
+                ? `${resolvedCount}/${totalResolution} resolved`
+                : 'Rate'}
               icon={CheckCircle}
               color="yellow"
             />
@@ -272,79 +433,42 @@ const EvaluationPage: React.FC = () => {
             <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                 <TrendingUp className="w-5 h-5 mr-2 text-blue-600" />
-                {currentEvaluation ? 'AI Reasoning' : 'Analysis Summary'}
+                {filteredEvaluations.length > 0 ? 'AI Reasoning' : 'Analysis Summary'}
               </h3>
               
-              {currentEvaluation && currentEvaluation.reasoning ? (
+              {filteredEvaluations.length > 0 && (
                 <div className="space-y-4">
                   <div>
                     <h4 className="font-medium text-blue-600 dark:text-blue-400 mb-1">Coherence</h4>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
-                      {currentEvaluation.reasoning.coherence?.reasoning || 'No reasoning available'}
+                      {filteredEvaluations[0].reasoning?.coherence?.reasoning || 'No reasoning available'}
                     </p>
                   </div>
                   <div>
                     <h4 className="font-medium text-emerald-600 dark:text-emerald-400 mb-1">Relevance</h4>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
-                      {currentEvaluation.reasoning.relevance?.reasoning || 'No reasoning available'}
+                      {filteredEvaluations[0].reasoning?.relevance?.reasoning || 'No reasoning available'}
                     </p>
                   </div>
                   <div>
                     <h4 className="font-medium text-purple-600 dark:text-purple-400 mb-1">Politeness</h4>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
-                      {currentEvaluation.reasoning.politeness?.reasoning || 'No reasoning available'}
+                      {filteredEvaluations[0].reasoning?.politeness?.reasoning || 'No reasoning available'}
                     </p>
                   </div>
                   <div>
                     <h4 className="font-medium text-yellow-600 dark:text-yellow-400 mb-1">Resolution</h4>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
-                      {currentEvaluation.reasoning.resolution?.reasoning || 'No reasoning available'}
+                      {filteredEvaluations[0].reasoning?.resolution?.reasoning || 'No reasoning available'}
                     </p>
                   </div>
                   
-                  {currentEvaluation.evaluationSummary && (
+                  {filteredEvaluations[0].evaluation_summary && (
                     <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
                       <h4 className="font-medium text-gray-900 dark:text-white mb-2">Evaluation Summary</h4>
                       <p className="text-sm text-gray-600 dark:text-gray-400">
-                        {currentEvaluation.evaluationSummary}
+                        {filteredEvaluations[0].evaluation_summary}
                       </p>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <p className="text-gray-600 dark:text-gray-400">
-                    {filteredEvaluations.length > 0 
-                      ? `Showing average metrics across ${filteredEvaluations.length} evaluated chats.`
-                      : 'No evaluations available. Upload and process chat logs to see evaluations.'
-                    }
-                  </p>
-                  {filteredEvaluations.length > 0 && (
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-gray-500 dark:text-gray-400">Avg. Coherence:</span>
-                        <span className="ml-2 font-medium text-blue-600 dark:text-blue-400">
-                          {formattedAvgMetrics.coherence.toFixed(1)}/5.0
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500 dark:text-gray-400">Avg. Relevance:</span>
-                        <span className="ml-2 font-medium text-emerald-600 dark:text-emerald-400">
-                          {formattedAvgMetrics.relevance.toFixed(1)}/5.0
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500 dark:text-gray-400">Avg. Politeness:</span>
-                        <span className="ml-2 font-medium text-purple-600 dark:text-purple-400">
-                          {formattedAvgMetrics.politeness.toFixed(1)}/5.0
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500 dark:text-gray-400">Avg. Resolution:</span>
-                        <span className="ml-2 font-medium text-yellow-600 dark:text-yellow-400">
-                          {formattedAvgMetrics.resolution.toFixed(2)}
-                        </span>
-                      </div>
                     </div>
                   )}
                 </div>

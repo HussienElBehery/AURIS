@@ -7,6 +7,63 @@ import { Analysis, GuidelineResult, ChatLog } from '../types';
 import Chart from '../components/Chart';
 import MetricCard from '../components/MetricCard';
 
+// Mock analysis data
+const MOCK_ANALYSES: Analysis[] = [
+  {
+    id: 'analysis-001',
+    chat_log_id: 'chat-001',
+    agent_id: '1',
+    guidelines: [
+      { name: 'Acknowledge and Empathize', passed: true, description: 'Agent properly acknowledged the delivery issue and showed empathy.' },
+      { name: 'Set Clear Expectations', passed: true, description: 'Agent set clear expectations for the package trace process.' },
+      { name: 'Proactive Help', passed: true, description: 'Agent offered proactive solutions by initiating the trace immediately.' }
+    ],
+    issues: [],
+    highlights: [
+      'Immediate acknowledgment of customer concern',
+      'Clear communication of next steps',
+      'Proactive problem-solving approach'
+    ],
+    analysis_summary: 'Excellent customer service interaction with proper empathy, clear communication, and proactive problem-solving.'
+  },
+  {
+    id: 'analysis-002',
+    chat_log_id: 'chat-002',
+    agent_id: '1',
+    guidelines: [
+      { name: 'Acknowledge and Empathize', passed: true, description: 'Agent acknowledged customer frustration.' },
+      { name: 'Set Clear Expectations', passed: false, description: 'No clear return process was explained.' },
+      { name: 'Proactive Help', passed: false, description: 'Agent should have offered specific return options.' }
+    ],
+    issues: [
+      'Incomplete information gathering about the product issue',
+      'No clear return process outlined',
+      'Missing proactive solution offering'
+    ],
+    highlights: [
+      'Showed empathy for customer frustration'
+    ],
+    analysis_summary: 'Interaction needs improvement in setting clear expectations and providing proactive solutions.'
+  },
+  {
+    id: 'analysis-003',
+    chat_log_id: 'chat-003',
+    agent_id: '3',
+    guidelines: [
+      { name: 'Acknowledge and Empathize', passed: true, description: 'Agent offered immediate help.' },
+      { name: 'Set Clear Expectations', passed: true, description: 'Provided clear navigation instructions.' },
+      { name: 'Proactive Help', passed: true, description: 'Gave specific step-by-step guidance.' }
+    ],
+    issues: [],
+    highlights: [
+      'Quick and accurate response',
+      'Clear step-by-step instructions',
+      'Enthusiastic willingness to help'
+    ],
+    analysis_summary: 'Excellent response with clear instructions and helpful attitude.'
+  }
+];
+
 const DEFAULT_GUIDELINES: GuidelineResult[] = [
   { name: 'Acknowledge and Empathize', passed: false, description: 'Agent should acknowledge the customer\'s concern and show empathy.' },
   { name: 'Set Clear Expectations', passed: false, description: 'Agent should set clear, actionable expectations for the customer.' },
@@ -47,42 +104,56 @@ const AnalysisPage: React.FC = () => {
 
   // Check if user is a demo user
   const isDemoUser = localStorage.getItem('token') === 'demo-token';
+  
+  console.log('AnalysisPage - isDemoUser:', isDemoUser);
+  console.log('AnalysisPage - user:', user);
+  console.log('AnalysisPage - token:', localStorage.getItem('token'));
 
   useEffect(() => {
-    if (!isDemoUser) {
-      loadData();
-    }
+    console.log('AnalysisPage - useEffect triggered, isDemoUser:', isDemoUser);
+    loadData();
   }, [isDemoUser]);
 
   const loadData = async () => {
+    console.log('AnalysisPage - loadData called, isDemoUser:', isDemoUser);
     setLoading(true);
     setError(null);
     try {
-      console.log('User object:', user);
-      const logs = await api.chatLogs.getAll();
-      setChatLogs(logs);
-      const allAnalyses: Analysis[] = [];
-      if (user?.role === 'manager') {
-        // Managers can see all analyses
-        const analyses = await api.analysis.getAll();
-        console.log('Raw analyses from API (manager):', analyses);
-        allAnalyses.push(...analyses);
+      if (isDemoUser) {
+        console.log('AnalysisPage - Using mock data for demo user');
+        // Use mock data for demo users
+        setChatLogs(MOCK_CHATLOGS);
+        setAnalyses(MOCK_ANALYSES);
       } else {
-        // Agents see their own analyses - use agentId from user object
-        const agentId = user?.agentId || (user as any)?.agent_id;
-        console.log('AgentId used for analysis API:', agentId);
-        if (!agentId) {
-          console.warn('No agentId found in user object!');
-        }
-        if (agentId) {
-          const analyses = await api.analysis.getByAgentId(agentId);
-          console.log('Raw analyses from API (agent):', analyses);
+        console.log('AnalysisPage - Fetching real data for user:', user);
+        console.log('User object:', user);
+        const logs = await api.chatLogs.getAll();
+        console.log('AnalysisPage - Chat logs fetched:', logs);
+        setChatLogs(logs);
+        const allAnalyses: Analysis[] = [];
+        if (user?.role === 'manager') {
+          // Managers can see all analyses
+          const analyses = await api.analysis.getAll();
+          console.log('Raw analyses from API (manager):', analyses);
           allAnalyses.push(...analyses);
+        } else {
+          // Agents see their own analyses - use agentId from user object
+          const agentId = user?.agentId || (user as any)?.agent_id;
+          console.log('AgentId used for analysis API:', agentId);
+          if (!agentId) {
+            console.warn('No agentId found in user object!');
+          }
+          if (agentId) {
+            const analyses = await api.analysis.getByAgentId(agentId);
+            console.log('Raw analyses from API (agent):', analyses);
+            allAnalyses.push(...analyses);
+          }
         }
+        console.log('Mapped analyses:', allAnalyses);
+        setAnalyses(allAnalyses);
       }
-      console.log('Mapped analyses:', allAnalyses);
-      setAnalyses(allAnalyses);
     } catch (err: any) {
+      console.error('AnalysisPage - Error loading data:', err);
       setError(err.message || 'Failed to load data');
     } finally {
       setLoading(false);
@@ -90,26 +161,26 @@ const AnalysisPage: React.FC = () => {
   };
 
   const userChats = isDemoUser 
-    ? [] // Demo data would be handled differently
+    ? MOCK_CHATLOGS
     : chatLogs;
 
   const userAnalyses = isDemoUser 
-    ? [] // Demo data would be handled differently
+    ? MOCK_ANALYSES
     : analyses;
 
   // Filtering logic for analyses:
   // - Only include analyses for chats that exist in userChats
   // - Apply chat and agent filters just like EvaluationPage
   const filteredAnalyses = userAnalyses.filter(analysis => {
-    const chat = userChats.find(c => c.id === analysis.chatLogId);
+    const chat = userChats.find(c => c.id === analysis.chat_log_id);
     if (!chat) return false;
-    const matchesChat = selectedChat === 'all' || analysis.chatLogId === selectedChat;
-    const matchesAgent = selectedAgent === 'all' || analysis.agentId === selectedAgent;
+    const matchesChat = selectedChat === 'all' || analysis.chat_log_id === selectedChat;
+    const matchesAgent = selectedAgent === 'all' || analysis.agent_id === selectedAgent;
     return matchesChat && matchesAgent;
   });
 
   const currentAnalysis = selectedChat !== 'all' 
-    ? filteredAnalyses.find(a => a.chatLogId === selectedChat)
+    ? filteredAnalyses.find(a => a.chat_log_id === selectedChat)
     : null;
 
   // Call check function after data is loaded and filters change
@@ -121,7 +192,7 @@ const AnalysisPage: React.FC = () => {
   console.log('userChats:', userChats);
   console.log('userAnalyses:', userAnalyses);
   console.log('All chat IDs:', userChats.map(c => c.id), 'Types:', userChats.map(c => typeof c.id));
-  console.log('All analysis chatLogIds:', userAnalyses.map(a => a.chatLogId), 'Types:', userAnalyses.map(a => typeof a.chatLogId));
+  console.log('All analysis chatLogIds:', userAnalyses.map(a => a.chat_log_id), 'Types:', userAnalyses.map(a => typeof a.chat_log_id));
   console.log('selectedChat:', selectedChat, 'Type:', typeof selectedChat);
   console.log('filteredAnalyses:', filteredAnalyses);
   console.log('currentAnalysis:', currentAnalysis);
@@ -273,7 +344,7 @@ const AnalysisPage: React.FC = () => {
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               >
                 <option value="all">All Agents</option>
-                {Array.from(new Set(userAnalyses.map(analysis => analysis.agentId).filter(Boolean))).map(agentId => (
+                {Array.from(new Set(userAnalyses.map(analysis => analysis.agent_id).filter(Boolean))).map(agentId => (
                   <option key={agentId} value={agentId}>{agentId}</option>
                 ))}
               </select>
@@ -390,7 +461,7 @@ const AnalysisPage: React.FC = () => {
                   {filteredAnalyses.map((analysis, idx) => (
                     <div key={analysis.id || idx} className="mb-8">
                       <div className="mb-2 font-semibold text-blue-700 dark:text-blue-300">
-                        Chat: {getChatLabel(userChats, analysis.chatLogId)}
+                        Chat: {getChatLabel(userChats, analysis.chat_log_id)}
                       </div>
                       {analysis.issues && analysis.issues.length > 0 ? (
                         analysis.issues.map((issue, index) => (
@@ -452,7 +523,7 @@ const AnalysisPage: React.FC = () => {
                   {filteredAnalyses.map((analysis, idx) => (
                     <div key={analysis.id || idx} className="mb-8">
                       <div className="mb-2 font-semibold text-blue-700 dark:text-blue-300">
-                        Chat: {getChatLabel(userChats, analysis.chatLogId)}
+                        Chat: {getChatLabel(userChats, analysis.chat_log_id)}
                       </div>
                       {analysis.highlights && analysis.highlights.length > 0 ? (
                         analysis.highlights.map((highlight, index) => (
@@ -515,11 +586,11 @@ const AnalysisPage: React.FC = () => {
                 {filteredAnalyses.map((analysis, idx) => (
                   <div key={analysis.id || idx} className="mb-8">
                     <div className="mb-2 font-semibold text-blue-700 dark:text-blue-300">
-                      Chat: {getChatLabel(userChats, analysis.chatLogId)}
+                      Chat: {getChatLabel(userChats, analysis.chat_log_id)}
                     </div>
-                    {analysis.analysisSummary ? (
+                    {analysis.analysis_summary ? (
                       <div className="prose dark:prose-invert max-w-none text-gray-900 dark:text-gray-100 font-medium">
-                        {analysis.analysisSummary}
+                        {analysis.analysis_summary}
                       </div>
                     ) : (
                       <div className="text-gray-600 dark:text-gray-400 text-center py-4">
@@ -535,9 +606,9 @@ const AnalysisPage: React.FC = () => {
               </div>
             )
           ) : (
-            currentAnalysis?.analysisSummary ? (
+            currentAnalysis?.analysis_summary ? (
               <div className="prose dark:prose-invert max-w-none text-gray-900 dark:text-gray-100 font-medium">
-                {currentAnalysis.analysisSummary}
+                {currentAnalysis.analysis_summary}
               </div>
             ) : (
               <div className="text-gray-600 dark:text-gray-400 text-center py-4">

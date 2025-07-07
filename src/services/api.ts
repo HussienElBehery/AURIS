@@ -31,17 +31,33 @@ function mapAnalysisResponse(data: any): Analysis {
   // Check function for debugging
   console.log('--- mapAnalysisResponse Check ---');
   console.log('raw data:', data);
+
+  // Handle both old and new keys for issues and highlights
+  const issues = data.issues || data.key_issues || [];
+  const highlights = data.highlights || data.positive_highlights || [];
+
+  // Handle guidelines/guideline_adherence
+  let guidelines = data.guidelines;
+  if (!guidelines && Array.isArray(data.guideline_adherence)) {
+    // Convert guideline_adherence to GuidelineResult[]
+    guidelines = data.guideline_adherence.map((g: any) => ({
+      name: g.guideline || g.name || '',
+      passed: g.status === 'Passed' || g.passed === true,
+      description: g.details || g.description || '',
+    }));
+  }
+
   const mapped = {
     id: data.id,
-    chatLogId: data.chat_log_id,
-    agentId: data.agent_id,
-    guidelines: data.guidelines,
-    issues: data.issues,
-    highlights: data.highlights,
-    analysisSummary: data.analysis_summary,
-    errorMessage: data.error_message,
-    createdAt: data.created_at,
-    updatedAt: data.updated_at,
+    chat_log_id: data.chat_log_id,
+    agent_id: data.agent_id,
+    guidelines,
+    issues,
+    highlights,
+    analysis_summary: data.analysis_summary,
+    error_message: data.error_message,
+    created_at: data.created_at,
+    updated_at: data.updated_at,
   };
   console.log('mapped analysis:', mapped);
   console.log('-------------------------------');
@@ -94,11 +110,14 @@ async function fetchWithAuthRetry(input: RequestInfo, init: RequestInit = {}, re
 function mapRecommendationResponse(data: any): Recommendation {
   return {
     id: data.id,
-    chatLogId: data.chat_log_id,
-    errorMessage: data.error_message,
-    createdAt: data.created_at,
-    updatedAt: data.updated_at,
-    // Fallbacks for frontend compatibility
+    chat_log_id: data.chat_log_id,
+    original_message: data.original_message,
+    improved_message: data.improved_message,
+    reasoning: data.reasoning,
+    coaching_suggestions: data.coaching_suggestions,
+    error_message: data.error_message,
+    created_at: data.created_at,
+    updated_at: data.updated_at,
     specific_feedback: data.specific_feedback || [],
     long_term_coaching: data.long_term_coaching || '',
   };
@@ -344,13 +363,13 @@ export const api = {
     getStats: async (filters?: { agentId?: string; dateFrom?: string; dateTo?: string }): Promise<DashboardStats> => {
       // Return mock data for now
       return {
-        avgCoherence: 4.2,
-        avgRelevance: 4.5,
-        avgPoliteness: 4.3,
-        avgResolution: 4.1,
-        totalChats: 25,
-        unresolvedChats: 3,
-        totalEvaluations: 22,
+        avg_coherence: 4.2,
+        avg_relevance: 4.5,
+        avg_politeness: 4.3,
+        avg_resolution: 4.1,
+        total_chats: 25,
+        unresolved_chats: 3,
+        total_evaluations: 22,
       };
     },
   },

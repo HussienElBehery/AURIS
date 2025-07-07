@@ -84,19 +84,37 @@ class RecommendationAgent:
             # --- Parse feedback pairs ---
             feedback = []
             try:
-                # Accepts both numbered and unnumbered pairs, and is robust to extra whitespace
-                pattern = re.compile(r"Original message:\s*(.*?)\nSuggested message:\s*(.*?)(?=\nOriginal message:|\n*$)", re.DOTALL | re.IGNORECASE)
-                matches = pattern.findall(feedback_response)
+                # Try to parse as JSON first (in case feedback_response is a JSON string)
+                feedback_text = feedback_response
+                try:
+                    feedback_json = json.loads(feedback_response)
+                    if isinstance(feedback_json, dict) and "feedback" in feedback_json:
+                        feedback_text = feedback_json["feedback"]
+                except Exception:
+                    feedback_text = feedback_response
+
+                # Flexible regex: match optional bullets/numbers/dashes, all 'Original'/'Suggested' variants, and tolerate whitespace
+                pattern = re.compile(
+                    r"(?:^|\n)[\-\d\.\s]*Original(?: message)?\s*:\s*(.*?)\n[\-\d\.\s]*Suggested(?: (?:improvement|message))?\s*:\s*(.*?)(?=\n[\-\d\.\s]*Original(?: message)?\s*:|\n*$)",
+                    re.DOTALL | re.IGNORECASE
+                )
+                matches = pattern.findall(feedback_text)
                 for orig, sugg in matches:
                     if orig.strip() and sugg.strip():
                         feedback.append({"original_text": orig.strip(), "suggested_text": sugg.strip()})
                 # Fallback: try to parse at least one pair if the above fails
                 if not feedback:
-                    # Try splitting by 'Original message:'
-                    parts = feedback_response.split('Original message:')
+                    import re as _re
+                    parts = _re.split(r'[\-\d\.\s]*Original(?: message)?\s*:', feedback_text)
                     for part in parts[1:]:
                         if 'Suggested message:' in part:
                             orig, sugg = part.split('Suggested message:', 1)
+                            feedback.append({"original_text": orig.strip(), "suggested_text": sugg.strip()})
+                        elif 'Suggested improvement:' in part:
+                            orig, sugg = part.split('Suggested improvement:', 1)
+                            feedback.append({"original_text": orig.strip(), "suggested_text": sugg.strip()})
+                        elif 'Suggested:' in part:
+                            orig, sugg = part.split('Suggested:', 1)
                             feedback.append({"original_text": orig.strip(), "suggested_text": sugg.strip()})
                 if not feedback:
                     feedback = [{"original_text": "No feedback available.", "suggested_text": ""}]
