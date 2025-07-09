@@ -8,7 +8,10 @@ AURIS analyzes customer service chat logs using state-of-the-art AI models (via 
 
 ## 🔗 Pipeline Overview
 
-AURIS processes each chat log through a multi-stage pipeline: evaluation, analysis, and recommendation. This ensures comprehensive, actionable feedback for every conversation. A detailed pipeline diagram is available in the `Visuals/` directory.
+AURIS processes each chat log through a multi-stage pipeline: evaluation, analysis, and recommendation. This ensures comprehensive, actionable feedback for every conversation. A detailed pipeline diagram is available below.
+
+![AURIS Pipeline](Visuals/pipeline.png)
+_Figure: AURIS processing pipeline for customer service chat evaluation._
 
 ## 🤖 The Three Core Agents
 
@@ -66,46 +69,55 @@ src/
 Visuals/                 # Diagrams and pipeline visualizations
 ```
 
+## 🖼️ Visuals
+
+### Pipeline Overview
+
+AURIS processes each chat log through a multi-stage pipeline: evaluation, analysis, and recommendation. This ensures comprehensive, actionable feedback for every conversation.
+
+![AURIS Pipeline](Visuals/pipeline.png)
+_Figure 1: AURIS processing pipeline for customer service chat evaluation._
+
+### Sequence Diagram
+
+The following diagram illustrates the sequence of operations for chat evaluation and recommendation in AURIS.
+
+![AURIS Sequence Diagram](Visuals/sequence.png)
+_Figure 2: Sequence of operations for chat evaluation and recommendation in AURIS._
+
+> Additional diagrams and design assets are available in the [Visuals/](Visuals/) directory.
+
 ## ⚡ Getting Started
 
 ### Prerequisites
 
-- Node.js (v16+ recommended)
+- Node.js (v16+)
 - Python 3.8+ (for backend)
-- [Ollama](https://ollama.com/) LLM service running locally or remotely (required for all AI-powered features)
+- [Ollama](https://ollama.com/) LLM service (local or remote)
 
-### 1. Clone the Repository
+### Setup Steps
 
-```bash
-git clone <repository-url>
-cd AURIS
-```
-
-### 2. Install Frontend Dependencies
-
-```bash
-npm install
-```
-
-### 3. Set Up Environment Variables
-
-```bash
-cp env.example .env.local
-```
-
-Edit `.env.local` as needed (see `env.example` for options).
-
-### 4. Start the Backend
-
-Make sure your Python backend and Ollama service are running. (See backend/README.md or backend docs for details.)
-
-### 5. Start the Frontend
-
-```bash
-npm run dev
-```
-
-Visit [http://localhost:5173](http://localhost:5173) in your browser.
+1. **Clone the Repository**
+   ```bash
+   git clone <repository-url>
+   cd AURIS
+   ```
+2. **Install Frontend Dependencies**
+   ```bash
+   npm install
+   ```
+3. **Set Up Environment Variables**
+   ```bash
+   cp env.example .env.local
+   ```
+   Edit `.env.local` as needed (see `env.example` for options).
+4. **Start the Backend**
+   - Ensure your Python backend and Ollama service are running. (See backend/README.md for details.)
+5. **Start the Frontend**
+   ```bash
+   npm run dev
+   ```
+   Visit [http://localhost:5173](http://localhost:5173) in your browser.
 
 ## 🔌 Backend Integration
 
