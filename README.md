@@ -68,14 +68,14 @@ Visuals/                 # Diagrams and pipeline visualizations
 
 AURIS processes each chat log through a multi-stage pipeline: evaluation, analysis, and recommendation. This ensures comprehensive, actionable feedback for every conversation.
 
-![AURIS Pipeline](Visuals/pipeline.png)
+![AURIS Pipeline](Visuals/Pipeline.png)
 _Figure 1: AURIS processing pipeline for customer service chat evaluation._
 
 ### Sequence Diagram
 
 The following diagram illustrates the sequence of operations for chat evaluation and recommendation in AURIS.
 
-![AURIS Sequence Diagram](Visuals/sequence.png)
+![AURIS Sequence Diagram](Visuals/SeqDiagram.png)
 _Figure 2: Sequence of operations for chat evaluation and recommendation in AURIS._
 
 > Additional diagrams and design assets are available in the [Visuals/](Visuals/) directory.
