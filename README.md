@@ -6,13 +6,6 @@ AURIS is an advanced platform for evaluating customer service interactions, powe
 
 AURIS analyzes customer service chat logs using state-of-the-art AI models (via Ollama). It automatically evaluates agent performance, identifies strengths and weaknesses, and generates targeted feedback and coaching suggestions. The system is designed for both agents and managers, supporting real-time analytics, role-based access, and seamless integration with your backend.
 
-## 🔗 Pipeline Overview
-
-AURIS processes each chat log through a multi-stage pipeline: evaluation, analysis, and recommendation. This ensures comprehensive, actionable feedback for every conversation. A detailed pipeline diagram is available below.
-
-![AURIS Pipeline](Visuals/pipeline.png)
-_Figure: AURIS processing pipeline for customer service chat evaluation._
-
 ## 🤖 The Three Core Agents
 
 AURIS leverages three specialized AI agents:
