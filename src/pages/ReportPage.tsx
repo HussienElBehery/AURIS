@@ -263,7 +263,14 @@ const ReportPage: React.FC = () => {
           avg_politeness,
           avg_resolution,
           total_chats: agentChats.length,
-          resolved_chats: agentChats.length, // Simplified for demo
+          resolved_chats: agentEvals.filter(e => {
+            if (typeof e.resolution === 'number') {
+              return e.resolution === 1;
+            } else if (e.resolution && typeof e.resolution === 'object' && 'score' in e.resolution) {
+              return (e.resolution as any).score === 1;
+            }
+            return false;
+          }).length,
           total_evaluations: agentEvals.length,
           guideline_compliance: guidelineCompliance,
           top_issues: topIssues,

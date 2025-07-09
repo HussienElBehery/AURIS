@@ -19,16 +19,16 @@ if not logger.hasHandlers():
 
 DEFAULT_GUIDELINES = [
     {
-        "guideline": "Acknowledge and Empathize",
-        "description": "Agent should acknowledge the customer's concern and show empathy."
+    "guideline": "Acknowledge and Empathize",
+    "description": "Agent should recognize the issue and express genuine understanding."
     },
     {
-        "guideline": "Set Clear Expectations",
-        "description": "Agent should set clear, actionable expectations for the customer."
+    "guideline": "Set Clear Expectations",
+    "description": "Agent should communicate clear next steps or timelines, even if the issue is ongoing."
     },
     {
-        "guideline": "Proactive Help",
-        "description": "Agent should offer proactive solutions and explore alternatives."
+    "guideline": "Proactive Help",
+    "description": "Agent should anticipate needs, offer helpful options, or prevent future issues."
     },
 ]
 
@@ -177,7 +177,8 @@ class AnalysisAgent:
                     "Analyze the customer service conversation and return ONLY valid JSON with these exact keys: "
                     "'key_issues' (list of short strings), 'positive_highlights' (list of short strings), "
                     "and 'guideline_adherence' (list of objects with keys: guideline, status (Passed/Failed), details (1 sentence max)). "
-                    "Always include ALL keys, even if empty. Do not include any explanation or text outside the JSON."
+                    "Always include ALL keys, even if empty. Do not include any explanation or text outside the JSON. "
+                    "IMPORTANT: Only comment on the AGENT's actions, responses, and behavior. Do NOT describe the customer's problem, the chatlog in general, or restate the customer's issue. "
                 )
                 if extra_instructions:
                     instruction += f" {extra_instructions}"

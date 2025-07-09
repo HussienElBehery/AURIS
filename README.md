@@ -1,209 +1,135 @@
 # AURIS - Customer Service Evaluation System
 
-A comprehensive React-based frontend application for evaluating customer service interactions and providing AI-powered recommendations for improvement.
+AURIS is an advanced platform for evaluating customer service interactions, powered by AI agents and integrated with the Ollama LLM service. It provides actionable insights, performance analytics, and coaching recommendations to help organizations improve their customer support quality. The backend leverages Ollama for natural language processing and model inference.
+
+## 🌟 What Does AURIS Do?
+
+AURIS analyzes customer service chat logs using state-of-the-art AI models (via Ollama). It automatically evaluates agent performance, identifies strengths and weaknesses, and generates targeted feedback and coaching suggestions. The system is designed for both agents and managers, supporting real-time analytics, role-based access, and seamless integration with your backend.
+
+## 🔗 Pipeline Overview
+
+AURIS processes each chat log through a multi-stage pipeline: evaluation, analysis, and recommendation. This ensures comprehensive, actionable feedback for every conversation. A detailed pipeline diagram is available in the `Visuals/` directory.
+
+## 🤖 The Three Core Agents
+
+AURIS leverages three specialized AI agents:
+
+### 1. Evaluation Agent
+
+- **Purpose:** Objectively scores each conversation across four metrics: coherence, relevance, politeness, and resolution.
+- **Output:** Numeric scores (1–5 for most metrics, 0/1 for resolution) with concise reasoning for each, plus an evaluation summary.
+
+### 2. Analysis Agent
+
+- **Purpose:** Analyzes chat transcripts for key issues, positive highlights, and adherence to customer service guidelines.
+- **Output:** Structured analysis including lists of key issues, positive highlights, and guideline adherence (pass/fail with details).
+
+### 3. Recommendation Agent
+
+- **Purpose:** Provides actionable feedback and long-term coaching based on the analysis and evaluation results.
+- **Output:** Specific feedback (original agent messages and improved suggestions) and a coaching paragraph for professional development.
 
 ## 🚀 Features
 
-- **Interactive Dashboard** - Real-time metrics and performance analytics
-- **Chat Evaluation** - AI-powered analysis of customer service conversations
-- **Performance Tracking** - Monitor agent performance over time
-- **Recommendation Engine** - Personalized coaching suggestions
-- **Multi-role Support** - Agent and Manager interfaces
-- **Responsive Design** - Works on desktop and mobile devices
-- **Dark/Light Theme** - User preference support
+- **AI-Powered Chat Analysis** – Automated, unbiased evaluation of customer service conversations
+- **Actionable Recommendations** – Personalized feedback and coaching for agents
+- **Interactive Dashboard** – Real-time performance metrics and analytics
+- **Role-Based Access** – Agent and Manager interfaces
+- **Responsive UI** – Works on desktop and mobile
+- **Dark/Light Theme** – User preference support
+- **Ollama Integration** – Seamless use of local or remote LLMs for all NLP tasks
 
 ## 🛠️ Tech Stack
 
-- **Frontend**: React 18 + TypeScript
-- **Styling**: Tailwind CSS
-- **Routing**: React Router DOM
-- **State Management**: React Context + Custom Hooks
-- **Forms**: React Hook Form + Zod validation
-- **HTTP Client**: Axios
-- **Build Tool**: Vite
-- **Icons**: Lucide React
-
-## 📦 Installation
-
-1. **Clone the repository**
-
-   ```bash
-   git clone <repository-url>
-   cd AURIS
-   ```
-
-2. **Install dependencies**
-
-   ```bash
-   npm install
-   ```
-
-3. **Set up environment variables**
-
-   ```bash
-   cp env.example .env.local
-   ```
-
-   Edit `.env.local` with your configuration:
-
-   ```env
-   VITE_API_BASE_URL=http://localhost:3001/api
-   VITE_ENABLE_DEMO_MODE=true
-   ```
-
-4. **Start development server**
-
-   ```bash
-   npm run dev
-   ```
-
-5. **Open your browser**
-   Navigate to `http://localhost:5173`
+- **Frontend:** React 18, TypeScript, Tailwind CSS
+- **Backend:** Python (FastAPI), Ollama LLM service
+- **State Management:** React Context, Custom Hooks
+- **Forms:** React Hook Form, Zod
+- **HTTP Client:** Axios
+- **Build Tool:** Vite
 
 ## 🏗️ Project Structure
 
 ```
 src/
 ├── components/          # Reusable UI components
-│   ├── Chart.tsx       # Data visualization components
-│   ├── LoadingSkeleton.tsx
-│   ├── MetricCard.tsx
-│   └── Sidebar.tsx
-├── contexts/           # React Context providers
-│   ├── AuthContext.tsx # Authentication state
-│   └── ThemeContext.tsx # Theme management
-├── data/              # Mock data and static content
-│   └── mockData.ts
-├── hooks/             # Custom React hooks
-│   └── useApi.ts      # API integration hooks
-├── pages/             # Page components
-│   ├── AnalysisPage.tsx
-│   ├── ChatsPage.tsx
-│   ├── Dashboard.tsx
-│   ├── EvaluationPage.tsx
-│   ├── LandingPage.tsx
-│   ├── LoginPage.tsx
-│   ├── RecommendationPage.tsx
-│   ├── ReportPage.tsx
-│   └── SignupPage.tsx
-├── services/          # API and external services
-│   └── api.ts         # Centralized API client
-├── types/             # TypeScript type definitions
-│   └── index.ts
-├── utils/             # Utility functions
-│   └── index.ts
-├── App.tsx            # Main application component
-├── main.tsx           # Application entry point
-└── index.css          # Global styles
+├── contexts/            # React Context providers
+├── data/                # Mock data and static content
+├── hooks/               # Custom React hooks
+├── pages/               # Page components
+├── services/            # API and external services
+├── types/               # TypeScript type definitions
+├── utils/               # Utility functions
+├── App.tsx              # Main application component
+├── main.tsx             # Application entry point
+└── index.css            # Global styles
+Visuals/                 # Diagrams and pipeline visualizations
 ```
 
-## 🔧 Development
+## ⚡ Getting Started
 
-### Available Scripts
+### Prerequisites
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run preview` - Preview production build
-- `npm run lint` - Run ESLint
-- `npm run type-check` - Run TypeScript type checking
+- Node.js (v16+ recommended)
+- Python 3.8+ (for backend)
+- [Ollama](https://ollama.com/) LLM service running locally or remotely (required for all AI-powered features)
 
-### Code Style
+### 1. Clone the Repository
 
-- Use TypeScript for all new code
-- Follow ESLint configuration
-- Use functional components with hooks
-- Implement proper error handling
-- Write meaningful component and function names
+```bash
+git clone <repository-url>
+cd AURIS
+```
 
-### Adding New Features
+### 2. Install Frontend Dependencies
 
-1. **Create types** in `src/types/index.ts`
-2. **Add API endpoints** in `src/services/api.ts`
-3. **Create components** in `src/components/`
-4. **Add pages** in `src/pages/`
-5. **Update routing** in `src/App.tsx`
+```bash
+npm install
+```
+
+### 3. Set Up Environment Variables
+
+```bash
+cp env.example .env.local
+```
+
+Edit `.env.local` as needed (see `env.example` for options).
+
+### 4. Start the Backend
+
+Make sure your Python backend and Ollama service are running. (See backend/README.md or backend docs for details.)
+
+### 5. Start the Frontend
+
+```bash
+npm run dev
+```
+
+Visit [http://localhost:5173](http://localhost:5173) in your browser.
 
 ## 🔌 Backend Integration
 
-The frontend is designed to work with a RESTful API backend. Key endpoints:
+AURIS expects a RESTful API backend, with Ollama providing LLM inference. Key endpoints include:
 
-### Authentication
-
-- `POST /api/auth/login` - User login
-- `POST /api/auth/register` - User registration
-- `POST /api/auth/refresh` - Token refresh
-
-### Chat Logs
-
-- `GET /api/chat-logs` - Get chat logs with filters
-- `GET /api/chat-logs/:id` - Get specific chat log
-- `POST /api/chat-logs` - Create new chat log
-- `PATCH /api/chat-logs/:id` - Update chat log
-
-### Evaluations
-
-- `GET /api/evaluations` - Get evaluations
-- `GET /api/evaluations/:id` - Get specific evaluation
-- `POST /api/evaluations` - Create evaluation
-- `PATCH /api/evaluations/:id` - Update evaluation
-
-### Dashboard
-
-- `GET /api/dashboard/stats` - Get dashboard statistics
-
-### Users
-
-- `GET /api/users/profile` - Get user profile
-- `PATCH /api/users/profile` - Update user profile
-- `GET /api/users` - Get all users (managers only)
-
-## 🎨 UI Components
-
-### Design System
-
-The application uses a consistent design system with:
-
-- **Colors**: Tailwind CSS color palette
-- **Typography**: Inter font family
-- **Spacing**: Consistent 4px grid system
-- **Components**: Reusable UI components
-
-### Key Components
-
-- `MetricCard` - Display key performance metrics
-- `Chart` - Data visualization components
-- `LoadingSkeleton` - Loading state placeholders
-- `Sidebar` - Navigation component
-
-## 🔐 Authentication
-
-The application supports:
-
-- **JWT-based authentication**
-- **Role-based access control** (Agent/Manager)
-- **Token refresh** for session management
-- **Demo mode** for testing without backend
-
-## 📊 Data Flow
-
-1. **User Authentication** → AuthContext manages user state
-2. **API Calls** → Centralized API service handles requests
-3. **State Management** → React Context + custom hooks
-4. **UI Updates** → Components re-render based on state changes
+- `/api/auth/*` – Authentication (login, register, refresh)
+- `/api/chat-logs/*` – Chat log management
+- `/api/evaluations/*` – Evaluation results
+- `/api/dashboard/stats` – Dashboard metrics
+- `/api/users/*` – User profile and management
 
 ## 🚀 Deployment
 
-### Production Build
+To build for production:
 
 ```bash
 npm run build
 ```
 
-The build output will be in the `dist/` directory.
+The output will be in the `dist/` directory. Deploy with your preferred static hosting solution.
 
 ### Environment Variables
 
-Set these environment variables for production:
+Set these for production:
 
 ```env
 VITE_API_BASE_URL=https://your-api-domain.com/api
@@ -216,23 +142,14 @@ VITE_ENABLE_ANALYTICS=true
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+4. Submit a pull request
 
 ## 📝 License
 
-This project is licensed under the MIT License.
+MIT License
 
 ## 🆘 Support
 
-For support and questions:
-
 - Create an issue in the repository
 - Contact the development team
-- Check the documentation
-
-## 🔄 Version History
-
-- **v0.1.0** - Initial release with basic functionality
-- **v0.2.0** - Added API integration and enhanced UI
-- **v0.3.0** - Improved error handling and performance
+- See documentation for more info

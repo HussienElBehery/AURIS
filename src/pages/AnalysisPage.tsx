@@ -272,7 +272,7 @@ const AnalysisPage: React.FC = () => {
       {editingGuidelines && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-900 rounded-lg p-8 w-full max-w-lg shadow-lg">
-            <h2 className="text-xl font-bold mb-4">Edit Default Guidelines</h2>
+            <h2 className="text-xl font-bold mb-4">Edit Guidelines</h2>
             <div className="space-y-4">
               {guidelineDraft.map((g, idx) => (
                 <div key={idx} className="flex items-center space-x-2">
@@ -355,11 +355,18 @@ const AnalysisPage: React.FC = () => {
 
       {/* Guidelines Section */}
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
             <CheckCircle className="w-5 h-5 mr-2 text-emerald-600" />
             Guideline Compliance
           </h2>
+          <button
+            className="flex items-center space-x-1 px-3 py-1 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+            onClick={handleEditGuidelines}
+          >
+            <Edit2 className="w-4 h-4 mr-1" />
+            Edit Guidelines
+          </button>
         </div>
         <div className="p-6">
           {selectedChat === 'all' ? (

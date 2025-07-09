@@ -150,27 +150,44 @@ class EvaluationAgent:
     def _create_evaluation_prompt(self, transcript_text: str) -> str:
         """Create a comprehensive evaluation prompt in Alpaca format with clear resolution criteria."""
         return f"""
-### Instruction:
-You are a customer service QA evaluator. Carefully read the following conversation and evaluate the agent's performance in four categories. For each category, provide a score and a 1-sentence reasoning.
+You are an expert evaluator of customer service chatlogs. Assess the following conversation using these four metrics:
 
-- Coherence (score 1-5): How logically consistent and easy to follow are the agent's responses?
-- Politeness (score 1-5): How polite and respectful is the agent throughout the conversation?, Also make sure to be strict here.
-- Relevance (score 1-5): How relevant and on-topic are the agent's responses to the customer's needs?
-- Resolution (score 0 or 1): Only give a score of 1 if the customer's problem is fully resolved by the end of the conversation. If the problem is not resolved or only partially resolved, give a score of 0.
+1. **Coherence (1–5)** — Does the conversation flow logically and stay on topic?
+2. **Relevance (1–5)** — Does the agent respond directly and appropriately to the customer’s concerns?
+3. **Politeness (1–5)** — Is the agent professional, respectful, and empathetic in tone?
+4. **Resolution (0 or 1)** — Was the customer’s issue satisfactorily resolved? (1 = resolved, 0 = unresolved)
 
-Respond strictly in this JSON format:
+Example Conversation (Mediocre/Bad Agent):
+Message 1 customer: I am absolutely furious! I was charged $75 for premium support last month, but I never requested premium support! I've been a loyal customer for five years, and this is unacceptable. I'm already stressed with everything going on, and now this?!
+Message 2 agent: Okay. Let me check... uh... yeah, I see the charge. Did you... click something?
+Message 3 customer: Click something?! No! I didn't click anything! I specifically remember reviewing my plan and it did not include premium support. I need this removed from my bill immediately. This is causing me so much anxiety!
+Message 4 agent: Alright, alright. I'm processing a refund now. It'll probably take a few days. Anything else?
+Message 5 customer: A few days?! Can you be more specific? I need to know exactly when I can expect to see the credit. And what's to stop this from happening again? I'm seriously considering switching providers.
+Message 6 agent: It'll show up on your next bill. Look, I have other customers waiting. Bye.
+
+Example Evaluation Output:
 {{
-  "coherence": {{"score": <int 1-5>, "reasoning": "<1 sentence>"}},
-  "politeness": {{"score": <int 1-5>, "reasoning": "<1 sentence>"}},
-  "relevance": {{"score": <int 1-5>, "reasoning": "<1 sentence>"}},
-  "resolution": {{"score": <int 0 or 1>, "reasoning": "<1 sentence>"}}
+  "coherence": {{"score": 2, "reasoning": "The agent’s responses are abrupt, lack follow-through, and do not clearly guide the customer through the resolution process."}},
+  "politeness": {{"score": 1, "reasoning": "While the agent initially responds without hostility, they show little empathy and end the conversation dismissively."}},
+  "relevance": {{"score": 3, "reasoning": "The agent acknowledges the issue and processes a refund, but fails to address important follow-up concerns raised by the customer."}},
+  "resolution": {{"score": 0, "reasoning": "The resolution is vague, lacks clarity on timing or prevention of recurrence, and leaves the customer dissatisfied."}}
 }}
 
-### Input:
+Evaluate this Chatlog (Be strict and do not make assumptions):
 {transcript_text}
 
 ### Response:
 """
+    
+
+# Return the result in the following JSON format:
+# {{
+#   "coherence": {{"score": <int 1-5>, "reasoning": "<1 sentence, breif explaination>"}},
+#   "politeness": {{"score": <int 1-5>, "reasoning": "<1 sentence, breif explaination>"}},
+#   "relevance": {{"score": <int 1-5>, "reasoning": "<1 sentence, breif explaination>"}},
+#   "resolution": {{"score": <int 0 or 1>, "reasoning": "<1 sentence, breif explaination>"}}
+# }}
+
     
     def _generate_evaluation_summary(self, parsed_result: Dict[str, Any], transcript_text: str, model_name: str) -> str:
         """Generate a summary paragraph for evaluation metrics and reasoning."""

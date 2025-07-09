@@ -139,3 +139,6 @@ cython_debug/
 *.bak
 *.backup
 *.old
+
+# Hide Visuals directory (pipeline diagrams, etc.)
+Visuals/
