@@ -80,6 +80,16 @@ _Figure 2: Sequence of operations for chat evaluation and recommendation in AURI
 
 > Additional diagrams and design assets are available in the [Visuals/](Visuals/) directory.
 
+
+## 📦 Dataset
+
+This project uses a synthetic annotated dataset available on Hugging Face:
+
+➡️ [AURIS_GoldenEval-Synthetic-v1 on Hugging Face](https://huggingface.co/datasets/HussienElBehery/AURIS_GoldenEval-Synthetic-v1)
+
+This dataset includes 4,900 chat interactions, each annotated with coherence, politeness, relevance, resolution, and agent coaching reports.
+
+
 ## ⚡ Getting Started
 
 ### Prerequisites
